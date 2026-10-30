@@ -4,7 +4,7 @@ import React from 'react';
 import { useVault } from '@/lib/context/vaultContext';
 
 export const StatsBar: React.FC = () => {
-  const { credentials, projects } = useVault();
+  const { credentials, projects, isPro, keyLimit, openPricingModal } = useVault();
 
   const devCount = credentials.filter((c) => c.environment === 'development').length;
   const stageCount = credentials.filter((c) => c.environment === 'staging').length;
@@ -13,7 +13,14 @@ export const StatsBar: React.FC = () => {
   const stats = [
     {
       label: 'Credentials',
-      value: String(credentials.length),
+      detail: (
+        <p className="text-lg font-semibold text-white tracking-tight leading-none font-mono flex items-baseline gap-1.5">
+          {credentials.length}{' '}
+          <span className="text-[11px] font-normal text-zinc-500 font-sans">
+            {isPro ? 'unlimited' : `/ ${keyLimit} free`}
+          </span>
+        </p>
+      ),
     },
     {
       label: 'Projects',
@@ -32,11 +39,26 @@ export const StatsBar: React.FC = () => {
       ),
     },
     {
-      label: 'Cryptography',
+      label: 'Security & Plan',
       detail: (
-        <span className="text-xs text-emerald-400/90 font-medium font-mono">
-          AES-256-GCM
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-emerald-400/90 font-medium font-mono">
+            AES-256-GCM
+          </span>
+          {isPro ? (
+            <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20 font-semibold">
+              PRO
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={openPricingModal}
+              className="text-[10px] font-mono text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 px-1.5 py-0.5 rounded border border-indigo-500/20 hover:border-indigo-500/40 transition-colors"
+            >
+              UPGRADE
+            </button>
+          )}
+        </div>
       ),
     },
   ];

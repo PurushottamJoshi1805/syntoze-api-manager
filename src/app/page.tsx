@@ -14,6 +14,7 @@ import { EnvExportModal } from '@/components/EnvExportModal';
 import { EnvImportModal } from '@/components/EnvImportModal';
 import { VaultRecoveryModal } from '@/components/VaultRecoveryModal';
 import { PricingModal } from '@/components/PricingModal';
+import { SettingsModal } from '@/components/SettingsModal';
 import { DecryptedCredential } from '@/lib/types/vault';
 import { toast } from 'sonner';
 import {
@@ -46,6 +47,7 @@ export default function HomePage() {
     openPricingModal,
     closePricingModal,
     refreshSubscription,
+    openSettings,
   } = useVault();
 
   const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
@@ -77,12 +79,20 @@ export default function HomePage() {
     }
   }, [refreshSubscription]);
 
-  // Global keyboard shortcut: "N" opens Add Key modal
+  // Global keyboard shortcuts: "N" opens Add Key, "⌘," opens Settings
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = document.activeElement?.tagName.toLowerCase();
       const isInput = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select';
 
+      // Cmd/Ctrl + , opens Settings
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault();
+        openSettings();
+        return;
+      }
+
+      // "N" opens Add Key
       if (e.key.toLowerCase() === 'n' && !isInput && !e.metaKey && !e.ctrlKey) {
         if (!isLocked && isVaultConfigured && !isCredentialModalOpen) {
           e.preventDefault();
@@ -93,7 +103,7 @@ export default function HomePage() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isLocked, isVaultConfigured, isCredentialModalOpen]);
+  }, [isLocked, isVaultConfigured, isCredentialModalOpen, openSettings]);
 
   if (!isReady) {
     return (
@@ -378,6 +388,7 @@ export default function HomePage() {
         isOpen={isPricingOpen}
         onClose={closePricingModal}
       />
+      <SettingsModal />
     </div>
   );
 }
