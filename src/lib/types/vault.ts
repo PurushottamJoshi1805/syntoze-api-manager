@@ -78,3 +78,21 @@ export interface UserProfile {
   fullName?: string;
   avatarUrl?: string;
 }
+
+export type UserPlan = 'free' | 'pro' | 'team';
+
+export interface UserSubscription {
+  id: string;
+  userId: string;
+  plan: UserPlan;
+  billingCycle: 'monthly' | 'yearly' | 'lifetime';
+  status: 'active' | 'cancelled' | 'expired';
+  orderId?: string;
+  paymentId?: string;
+  amount?: number;
+  currency?: string;
+  expiresAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+

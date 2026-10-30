@@ -13,7 +13,9 @@ import { CredentialFormModal } from '@/components/CredentialFormModal';
 import { EnvExportModal } from '@/components/EnvExportModal';
 import { EnvImportModal } from '@/components/EnvImportModal';
 import { VaultRecoveryModal } from '@/components/VaultRecoveryModal';
+import { PricingModal } from '@/components/PricingModal';
 import { DecryptedCredential } from '@/lib/types/vault';
+import { toast } from 'sonner';
 import {
   Key,
   Plus,
@@ -39,6 +41,11 @@ export default function HomePage() {
     activeProvider,
     searchQuery,
     user,
+    isPro,
+    isPricingOpen,
+    openPricingModal,
+    closePricingModal,
+    refreshSubscription,
   } = useVault();
 
   const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
@@ -48,6 +55,27 @@ export default function HomePage() {
   const [isEnvExportOpen, setIsEnvExportOpen] = useState(false);
   const [isEnvImportOpen, setIsEnvImportOpen] = useState(false);
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
+
+  // Check Cashfree Payment Return Status
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('upgraded') === 'true') {
+        toast.success(
+          '🎉 Welcome to Syntoze Pro! Unlimited keys and advanced security alerts are now active.',
+          { duration: 6000 }
+        );
+        refreshSubscription();
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (params.get('payment') === 'unpaid') {
+        toast.error('Payment was not completed. Please try again when ready.');
+        window.history.replaceState({}, '', window.location.pathname);
+      } else if (params.get('payment') === 'config_error') {
+        toast.error('Payment configuration error. Please verify Cashfree API keys.');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, [refreshSubscription]);
 
   // Global keyboard shortcut: "N" opens Add Key modal
   useEffect(() => {
@@ -114,6 +142,11 @@ export default function HomePage() {
   });
 
   const handleOpenAddModal = () => {
+    if (!isPro && credentials.length >= 15) {
+      openPricingModal();
+      toast.error('Free tier limit reached (15/15 keys). Upgrade to Pro for unlimited storage.');
+      return;
+    }
     setEditingCredential(null);
     setIsCredentialModalOpen(true);
   };
@@ -340,6 +373,10 @@ export default function HomePage() {
       <VaultRecoveryModal
         isOpen={isRecoveryOpen}
         onClose={() => setIsRecoveryOpen(false)}
+      />
+      <PricingModal
+        isOpen={isPricingOpen}
+        onClose={closePricingModal}
       />
     </div>
   );

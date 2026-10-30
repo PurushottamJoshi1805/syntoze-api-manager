@@ -239,3 +239,87 @@ export async function deleteCredential(id: string): Promise<void> {
   const { error } = await supabase.from('credentials').delete().eq('id', id);
   if (error) throw new Error(error.message);
 }
+
+export async function deleteAllCredentials(): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await supabase.from('credentials').delete().eq('user_id', user.id);
+  if (error) throw new Error(error.message);
+}
+
+export async function updateVaultAutoLockMinutes(minutes: number): Promise<void> {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await supabase
+    .from('vault_settings')
+    .update({ auto_lock_minutes: minutes, updated_at: new Date().toISOString() })
+    .eq('user_id', user.id);
+  if (error) throw new Error(error.message);
+}
+
+// ============================================================
+// SUBSCRIPTIONS (CASHFREE PG)
+// ============================================================
+
+export interface DbSubscription {
+  id: string;
+  user_id: string;
+  plan: 'free' | 'pro' | 'team';
+  billing_cycle: 'monthly' | 'yearly' | 'lifetime';
+  status: 'active' | 'cancelled' | 'expired';
+  order_id: string | null;
+  payment_id: string | null;
+  amount: number | null;
+  currency: string;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getUserSubscription(): Promise<DbSubscription | null> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('user_subscriptions')
+      .select('*')
+      .single();
+
+    if (error || !data) return null;
+    return data as DbSubscription;
+  } catch {
+    return null;
+  }
+}
+
+export async function upsertUserSubscription(
+  sub: Omit<DbSubscription, 'id' | 'created_at' | 'updated_at'>
+): Promise<DbSubscription | null> {
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from('user_subscriptions')
+      .upsert(
+        { ...sub, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error upserting subscription:', error.message);
+      return null;
+    }
+    return data as DbSubscription;
+  } catch {
+    return null;
+  }
+}
+

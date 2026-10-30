@@ -37,7 +37,7 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
   onEdit,
   onRotate,
 }) => {
-  const { toggleRevealSecret, deleteCredential, credentials } = useVault();
+  const { toggleRevealSecret, deleteCredential, credentials, copyToClipboardSecure } = useVault();
   const [copied, setCopied] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
@@ -68,10 +68,10 @@ export const CredentialCard: React.FC<CredentialCardProps> = ({
     return () => clearInterval(timer);
   }, [credential.isRevealed, credential.id, toggleRevealSecret]);
 
-  const handleCopy = (e: React.MouseEvent) => {
+  const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!credential.plaintextSecret) return;
-    navigator.clipboard.writeText(credential.plaintextSecret);
+    await copyToClipboardSecure(credential.plaintextSecret, credential.name);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

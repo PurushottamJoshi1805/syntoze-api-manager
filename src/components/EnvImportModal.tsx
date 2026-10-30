@@ -32,7 +32,14 @@ export const EnvImportModal: React.FC<EnvImportModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { projects, addProject, batchAddCredentials } = useVault();
+  const {
+    projects,
+    addProject,
+    batchAddCredentials,
+    isPro,
+    credentials,
+    openPricingModal,
+  } = useVault();
 
   // Mode: 'input' | 'preview'
   const [step, setStep] = useState<'input' | 'preview'>('input');
@@ -159,6 +166,14 @@ export const EnvImportModal: React.FC<EnvImportModalProps> = ({
     const selected = parsedItems.filter((i) => i.selected);
     if (selected.length === 0) {
       setErrorMsg('Please select at least one variable to import.');
+      return;
+    }
+
+    if (!isPro && credentials.length + selected.length > 15) {
+      setErrorMsg(
+        `Importing ${selected.length} variable(s) would exceed your Free tier limit (15 keys max, currently holding ${credentials.length}). Please upgrade to Syntoze Pro.`
+      );
+      openPricingModal();
       return;
     }
 

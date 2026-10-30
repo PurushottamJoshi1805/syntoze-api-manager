@@ -74,3 +74,29 @@ create policy "Users can only read and manage their own credentials"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+-- ====================================================================
+-- 4. User Subscriptions / Orders (Cashfree PG)
+-- ====================================================================
+create table if not exists public.user_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade unique not null,
+  plan text default 'free' not null,        -- 'free' | 'pro' | 'team'
+  billing_cycle text default 'lifetime',    -- 'monthly' | 'yearly' | 'lifetime'
+  status text default 'active' not null,    -- 'active' | 'cancelled' | 'expired'
+  order_id text,
+  payment_id text,
+  amount numeric(10, 2) default 0.00,
+  currency text default 'INR',
+  expires_at timestamptz,                   -- null for lifetime
+  created_at timestamptz default now() not null,
+  updated_at timestamptz default now() not null
+);
+
+alter table public.user_subscriptions enable row level security;
+
+create policy "Users can view and manage their own subscription"
+  on public.user_subscriptions for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+

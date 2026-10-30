@@ -8,6 +8,7 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
+import { toast } from 'sonner';
 import {
   Project,
   StoredCredential,
@@ -16,6 +17,7 @@ import {
   UserProfile,
   ProviderType,
   EnvironmentType,
+  UserSubscription,
 } from '../types/vault';
 import {
   generateRecoveryCode,
@@ -24,18 +26,26 @@ import {
   unlockWithRecovery as cryptoRecoveryUnlock,
   encryptString,
   decryptString,
+  generateSalt,
+  deriveKeyFromPassphrase,
+  sha256Hash,
+  bufferToBase64,
 } from '../crypto/vaultCrypto';
 import {
   getVaultSettings,
   upsertVaultSettings,
   getProjects,
   createProject as dbCreateProject,
+  updateProject as dbUpdateProject,
   deleteProject as dbDeleteProject,
   getCredentials,
   createCredential as dbCreateCredential,
   createCredentialsBatch as dbCreateCredentialsBatch,
   updateCredential as dbUpdateCredential,
   deleteCredential as dbDeleteCredential,
+  deleteAllCredentials as dbDeleteAllCredentials,
+  updateVaultAutoLockMinutes as dbUpdateVaultAutoLockMinutes,
+  getUserSubscription,
 } from '../supabase/database';
 import { createClient } from '../supabase/client';
 import { formatSeconds } from '../utils';
@@ -110,10 +120,12 @@ interface VaultContextType {
 
   // Projects
   addProject: (name: string, description?: string, color?: string) => Promise<void>;
+  updateProject: (id: string, updates: { name?: string; description?: string; color?: string }) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
 
-  // Export
+  // Export & Backup
   exportEnvFormat: (projectId: string, environment: EnvironmentType) => string;
+  exportEncryptedBackup: () => void;
 
   // Filters
   setActiveProjectId: (id: string) => void;
@@ -123,6 +135,30 @@ interface VaultContextType {
 
   // Refresh
   refreshData: () => Promise<void>;
+
+  // Settings & Security Preferences
+  isSettingsOpen: boolean;
+  openSettings: () => void;
+  closeSettings: () => void;
+  updateAutoLockMinutes: (minutes: number) => Promise<boolean>;
+  changeMasterPassphrase: (
+    currentPass: string,
+    newPass: string
+  ) => Promise<{ success: boolean; newRecoveryCode?: string; error?: string }>;
+  regenerateRecoveryKit: () => Promise<{ recoveryCode: string }>;
+  purgeAllCredentials: () => Promise<void>;
+  clipboardClearSeconds: number;
+  setClipboardClearSeconds: (secs: number) => void;
+  copyToClipboardSecure: (text: string, label?: string) => Promise<void>;
+
+  // Subscription & Pro Status
+  userSubscription: UserSubscription | null;
+  isPro: boolean;
+  keyLimit: number;
+  isPricingOpen: boolean;
+  openPricingModal: () => void;
+  closePricingModal: () => void;
+  refreshSubscription: () => Promise<void>;
 }
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
@@ -143,6 +179,101 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [storedCredentials, setStoredCredentials] = useState<StoredCredential[]>([]);
   const [credentials, setCredentials] = useState<DecryptedCredential[]>([]);
+
+  // Subscription (Cashfree PG)
+  const [userSubscription, setUserSubscription] = useState<UserSubscription | null>(null);
+  const [isPricingOpen, setIsPricingOpen] = useState(false);
+
+  // Settings modal
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const openSettings = useCallback(() => setIsSettingsOpen(true), []);
+  const closeSettings = useCallback(() => setIsSettingsOpen(false), []);
+
+  // Clipboard security
+  const [clipboardClearSeconds, setClipboardClearSecondsState] = useState<number>(30);
+  const clipboardTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('syntoze_clipboard_clear_seconds');
+      if (saved !== null) {
+        setClipboardClearSecondsState(parseInt(saved, 10));
+      }
+    }
+  }, []);
+
+  const setClipboardClearSeconds = useCallback((secs: number) => {
+    setClipboardClearSecondsState(secs);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('syntoze_clipboard_clear_seconds', secs.toString());
+    }
+  }, []);
+
+  const copyToClipboardSecure = useCallback(
+    async (text: string, label = 'Secret') => {
+      try {
+        await navigator.clipboard.writeText(text);
+
+        if (clipboardClearSeconds > 0) {
+          if (clipboardTimeoutRef.current) {
+            clearTimeout(clipboardTimeoutRef.current);
+          }
+
+          toast.success(`${label} copied to clipboard`, {
+            description: `Auto-clearing clipboard in ${clipboardClearSeconds}s for security.`,
+            duration: 3500,
+          });
+
+          clipboardTimeoutRef.current = setTimeout(async () => {
+            try {
+              const currentClip = await navigator.clipboard.readText();
+              if (currentClip === text) {
+                await navigator.clipboard.writeText('');
+                toast.info('Clipboard cleared for security');
+              }
+            } catch {
+              // Browser permission check fallback
+            }
+          }, clipboardClearSeconds * 1000);
+        } else {
+          toast.success(`${label} copied to clipboard`);
+        }
+      } catch {
+        toast.error('Failed to copy to clipboard');
+      }
+    },
+    [clipboardClearSeconds]
+  );
+
+  const isPro = userSubscription?.plan === 'pro' || userSubscription?.plan === 'team';
+  const keyLimit = isPro ? Infinity : 15;
+
+  const openPricingModal = useCallback(() => setIsPricingOpen(true), []);
+  const closePricingModal = useCallback(() => setIsPricingOpen(false), []);
+
+  const refreshSubscription = useCallback(async () => {
+    try {
+      const sub = await getUserSubscription();
+      if (sub) {
+        setUserSubscription({
+          id: sub.id,
+          userId: sub.user_id,
+          plan: sub.plan,
+          billingCycle: sub.billing_cycle,
+          status: sub.status,
+          orderId: sub.order_id || undefined,
+          paymentId: sub.payment_id || undefined,
+          amount: sub.amount ? Number(sub.amount) : undefined,
+          currency: sub.currency,
+          expiresAt: sub.expires_at,
+          createdAt: sub.created_at,
+          updatedAt: sub.updated_at,
+        });
+      }
+    } catch {
+      // Safe fallback
+    }
+  }, []);
 
   // Filters
   const [activeProjectId, setActiveProjectId] = useState('all');
@@ -245,6 +376,29 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         setCredentials(
           mapped.map((c) => ({ ...c, plaintextSecret: undefined, isRevealed: false }))
         );
+
+        // Load user subscription (Cashfree PG)
+        try {
+          const sub = await getUserSubscription();
+          if (sub) {
+            setUserSubscription({
+              id: sub.id,
+              userId: sub.user_id,
+              plan: sub.plan,
+              billingCycle: sub.billing_cycle,
+              status: sub.status,
+              orderId: sub.order_id || undefined,
+              paymentId: sub.payment_id || undefined,
+              amount: sub.amount ? Number(sub.amount) : undefined,
+              currency: sub.currency,
+              expiresAt: sub.expires_at,
+              createdAt: sub.created_at,
+              updatedAt: sub.updated_at,
+            });
+          }
+        } catch {
+          // If subscription table not yet set up, default to free
+        }
       } catch (err) {
         console.error('Vault init error:', err);
       } finally {
@@ -466,6 +620,12 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }) => {
       if (!masterKeyRef.current) throw new Error('Vault is locked');
 
+      // Free tier limit check (15 keys)
+      if (!isPro && credentials.length >= 15) {
+        setIsPricingOpen(true);
+        throw new Error('Free plan limit reached (15 keys). Please upgrade to Syntoze Pro.');
+      }
+
       // Encrypt in browser
       const encrypted = await encryptString(data.secret, masterKeyRef.current);
 
@@ -502,7 +662,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         ...prev,
       ]);
     },
-    []
+    [isPro, credentials.length]
   );
 
   // ----------------------------------------------------------
@@ -519,6 +679,14 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }>): Promise<number> => {
       if (!masterKeyRef.current) throw new Error('Vault is locked');
       if (items.length === 0) return 0;
+
+      // Free tier limit check (15 keys)
+      if (!isPro && credentials.length + items.length > 15) {
+        setIsPricingOpen(true);
+        throw new Error(
+          `Importing ${items.length} key(s) would exceed your Free tier limit (15 keys max). Please upgrade to Syntoze Pro.`
+        );
+      }
 
       // 1. Encrypt all secrets concurrently in browser
       const encryptedRows = await Promise.all(
@@ -568,7 +736,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
       return inserted.length;
     },
-    []
+    [isPro, credentials.length]
   );
 
   // ----------------------------------------------------------
@@ -714,13 +882,263 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   // ----------------------------------------------------------
   const resetVault = useCallback(async () => {
     lockVaultInternal();
-    // Note: In production, you'd call a delete endpoint for vault_settings and credentials
-    // For now, just clear local state
     setVaultSettings(null);
     setIsVaultConfigured(false);
     setCredentials([]);
     setStoredCredentials([]);
   }, [lockVaultInternal]);
+
+  // ----------------------------------------------------------
+  // UPDATE PROJECT
+  // ----------------------------------------------------------
+  const updateProject = useCallback(
+    async (
+      id: string,
+      updates: { name?: string; description?: string; color?: string }
+    ): Promise<void> => {
+      const dbProj = await dbUpdateProject(id, updates);
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === id
+            ? {
+                ...p,
+                name: dbProj.name,
+                description: dbProj.description,
+                color: dbProj.color,
+                updatedAt: dbProj.updated_at,
+              }
+            : p
+        )
+      );
+    },
+    []
+  );
+
+  // ----------------------------------------------------------
+  // UPDATE AUTO-LOCK MINUTES
+  // ----------------------------------------------------------
+  const updateAutoLockMinutes = useCallback(
+    async (minutes: number): Promise<boolean> => {
+      try {
+        await dbUpdateVaultAutoLockMinutes(minutes);
+        setAutoLockMinutes(minutes);
+        setSecondsUntilLock(minutes * 60);
+        setVaultSettings((prev) => (prev ? { ...prev, autoLockMinutes: minutes } : null));
+        return true;
+      } catch (err) {
+        console.error('Failed to update auto-lock:', err);
+        return false;
+      }
+    },
+    []
+  );
+
+  // ----------------------------------------------------------
+  // CHANGE MASTER PASSPHRASE
+  // ----------------------------------------------------------
+  const changeMasterPassphrase = useCallback(
+    async (
+      currentPass: string,
+      newPass: string
+    ): Promise<{ success: boolean; newRecoveryCode?: string; error?: string }> => {
+      if (!vaultSettings) return { success: false, error: 'Vault is not configured.' };
+      if (!masterKeyRef.current) return { success: false, error: 'Vault is currently locked. Please unlock first.' };
+
+      try {
+        // 1. Verify current passphrase
+        const check = await cryptoUnlock(
+          currentPass,
+          vaultSettings.vaultSalt,
+          vaultSettings.keyCheckCiphertext,
+          vaultSettings.keyCheckIv
+        );
+        if (!check.success || !check.masterKey) {
+          return { success: false, error: 'Current master passphrase is incorrect.' };
+        }
+
+        // 2. Derive new key from new passphrase
+        const newSalt = generateSalt();
+        const newMasterKey = await deriveKeyFromPassphrase(newPass, newSalt);
+
+        // 3. New verifier sentinel
+        const verifier = await encryptString('SYNTOZE_VAULT_VERIFIED_OK_v1', newMasterKey);
+
+        // 4. Wrap with fresh recovery code
+        const cryptoObj = typeof window !== 'undefined' ? window.crypto : globalThis.crypto;
+        const rawKey = await cryptoObj.subtle.exportKey('raw', newMasterKey);
+        const rawKeyB64 = bufferToBase64(rawKey);
+
+        const newRecoveryCode = generateRecoveryCode();
+        const newRecoverySalt = generateSalt();
+        const recoveryKey = await deriveKeyFromPassphrase(newRecoveryCode, newRecoverySalt);
+        const wrappedMaster = await encryptString(rawKeyB64, recoveryKey);
+        const recoveryHash = await sha256Hash(newRecoveryCode);
+
+        // 5. Re-encrypt all stored credentials with new master key
+        for (const cred of credentials) {
+          if (cred.plaintextSecret && cred.plaintextSecret !== '[Decryption Error]') {
+            const reEnc = await encryptString(cred.plaintextSecret, newMasterKey);
+            await dbUpdateCredential(cred.id, {
+              encrypted_ciphertext: reEnc.ciphertext,
+              iv: reEnc.iv,
+            });
+          }
+        }
+
+        // 6. Save new vault settings to Supabase
+        const supabase = createClient();
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser();
+        if (!authUser) throw new Error('Not authenticated');
+
+        const saved = await upsertVaultSettings({
+          user_id: authUser.id,
+          vault_salt: newSalt,
+          key_check_ciphertext: verifier.ciphertext,
+          key_check_iv: verifier.iv,
+          recovery_hash: recoveryHash,
+          recovery_encrypted_key: wrappedMaster.ciphertext,
+          recovery_salt: `${newRecoverySalt}:${wrappedMaster.iv}`,
+          auto_lock_minutes: autoLockMinutes,
+        });
+
+        if (saved) {
+          setVaultSettings({
+            id: saved.id,
+            userId: saved.user_id,
+            vaultSalt: saved.vault_salt,
+            keyCheckCiphertext: saved.key_check_ciphertext,
+            keyCheckIv: saved.key_check_iv,
+            recoveryHash: saved.recovery_hash,
+            recoveryEncryptedKey: saved.recovery_encrypted_key,
+            recoverySalt: saved.recovery_salt,
+            autoLockMinutes: saved.auto_lock_minutes,
+            createdAt: saved.created_at,
+            updatedAt: saved.updated_at,
+          });
+        }
+
+        // 7. Update master key ref
+        masterKeyRef.current = newMasterKey;
+        recordActivity();
+
+        return { success: true, newRecoveryCode };
+      } catch (err: any) {
+        console.error('Change passphrase error:', err);
+        return { success: false, error: err?.message || 'Failed to change master passphrase.' };
+      }
+    },
+    [vaultSettings, credentials, autoLockMinutes, recordActivity]
+  );
+
+  // ----------------------------------------------------------
+  // REGENERATE RECOVERY KIT
+  // ----------------------------------------------------------
+  const regenerateRecoveryKit = useCallback(async (): Promise<{ recoveryCode: string }> => {
+    if (!vaultSettings) throw new Error('Vault not configured.');
+    if (!masterKeyRef.current) throw new Error('Vault is locked. Please unlock to regenerate recovery kit.');
+
+    const cryptoObj = typeof window !== 'undefined' ? window.crypto : globalThis.crypto;
+    const rawKey = await cryptoObj.subtle.exportKey('raw', masterKeyRef.current);
+    const rawKeyB64 = bufferToBase64(rawKey);
+
+    const newCode = generateRecoveryCode();
+    const newSalt = generateSalt();
+    const recoveryKey = await deriveKeyFromPassphrase(newCode, newSalt);
+    const wrappedMaster = await encryptString(rawKeyB64, recoveryKey);
+    const recoveryHash = await sha256Hash(newCode);
+
+    const supabase = createClient();
+    const {
+      data: { user: authUser },
+    } = await supabase.auth.getUser();
+    if (!authUser) throw new Error('Not authenticated');
+
+    const saved = await upsertVaultSettings({
+      user_id: authUser.id,
+      vault_salt: vaultSettings.vaultSalt,
+      key_check_ciphertext: vaultSettings.keyCheckCiphertext,
+      key_check_iv: vaultSettings.keyCheckIv,
+      recovery_hash: recoveryHash,
+      recovery_encrypted_key: wrappedMaster.ciphertext,
+      recovery_salt: `${newSalt}:${wrappedMaster.iv}`,
+      auto_lock_minutes: autoLockMinutes,
+    });
+
+    if (saved) {
+      setVaultSettings((prev) =>
+        prev
+          ? {
+              ...prev,
+              recoveryHash,
+              recoveryEncryptedKey: wrappedMaster.ciphertext,
+              recoverySalt: `${newSalt}:${wrappedMaster.iv}`,
+              updatedAt: saved.updated_at,
+            }
+          : null
+      );
+    }
+
+    return { recoveryCode: newCode };
+  }, [vaultSettings, autoLockMinutes]);
+
+  // ----------------------------------------------------------
+  // PURGE ALL CREDENTIALS
+  // ----------------------------------------------------------
+  const purgeAllCredentials = useCallback(async (): Promise<void> => {
+    await dbDeleteAllCredentials();
+    setCredentials([]);
+    setStoredCredentials([]);
+  }, []);
+
+  // ----------------------------------------------------------
+  // ENCRYPTED BACKUP EXPORT
+  // ----------------------------------------------------------
+  const exportEncryptedBackup = useCallback(() => {
+    if (!storedCredentials || !vaultSettings) return;
+
+    const backupPayload = {
+      app: 'Syntoze API Manager',
+      version: '2.0.0',
+      exportedAt: new Date().toISOString(),
+      userEmail: user?.email,
+      vaultMeta: {
+        autoLockMinutes: vaultSettings.autoLockMinutes,
+        createdAt: vaultSettings.createdAt,
+      },
+      projects: projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        description: p.description,
+        color: p.color,
+      })),
+      credentials: storedCredentials.map((c) => ({
+        id: c.id,
+        projectId: c.projectId,
+        provider: c.provider,
+        name: c.name,
+        environment: c.environment,
+        ciphertext: c.encryptedCiphertext,
+        iv: c.iv,
+        notes: c.notes,
+        createdAt: c.createdAt,
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(backupPayload, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `syntoze-vault-encrypted-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [storedCredentials, vaultSettings, user, projects]);
 
   // ----------------------------------------------------------
   // EXPORT .env
@@ -803,10 +1221,12 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           mapped.map((c) => ({ ...c, plaintextSecret: undefined, isRevealed: false }))
         );
       }
+
+      await refreshSubscription();
     } catch (err) {
       console.error('Refresh error:', err);
     }
-  }, [decryptAllCredentials]);
+  }, [decryptAllCredentials, refreshSubscription]);
 
   return (
     <VaultContext.Provider
@@ -818,6 +1238,24 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         vaultSettings,
         projects,
         credentials,
+        userSubscription,
+        isPro,
+        keyLimit,
+        isPricingOpen,
+        openPricingModal,
+        closePricingModal,
+        refreshSubscription,
+        isSettingsOpen,
+        openSettings,
+        closeSettings,
+        updateAutoLockMinutes,
+        changeMasterPassphrase,
+        regenerateRecoveryKit,
+        purgeAllCredentials,
+        exportEncryptedBackup,
+        clipboardClearSeconds,
+        setClipboardClearSeconds,
+        copyToClipboardSecure,
         autoLockMinutes,
         secondsUntilLock,
         activeProjectId,
@@ -836,6 +1274,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         deleteCredential,
         toggleRevealSecret,
         addProject,
+        updateProject,
         deleteProject,
         exportEnvFormat,
         setActiveProjectId,

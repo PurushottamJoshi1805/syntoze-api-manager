@@ -18,6 +18,7 @@ import {
   Shield,
   AlertCircle,
   ChevronDown,
+  Sparkles,
 } from 'lucide-react';
 
 interface CredentialFormModalProps {
@@ -92,6 +93,25 @@ export const CredentialFormModal: React.FC<CredentialFormModalProps> = ({
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to create project');
     }
+  };
+
+  const handleGenerateSecret = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes)
+      .map((b) => chars[b % chars.length])
+      .join('');
+
+    let prefix = 'sk_live_';
+    if (provider === 'stripe') prefix = environment === 'production' ? 'sk_live_' : 'sk_test_';
+    else if (provider === 'github') prefix = 'ghp_';
+    else if (provider === 'aws') prefix = 'AKIA';
+    else if (provider === 'openai') prefix = 'sk-';
+    else if (provider === 'custom') prefix = 'sec_';
+
+    setSecret(`${prefix}${token}`);
+    setShowSecret(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -306,9 +326,22 @@ export const CredentialFormModal: React.FC<CredentialFormModalProps> = ({
               <label className="text-xs font-medium text-zinc-300">
                 {editingCredential ? 'Replace secret (leave blank to keep)' : 'Secret key / token'}
               </label>
-              <span className="text-[10px] text-zinc-500 font-mono">
-                {secret.length > 0 ? `${secret.length} chars` : ''}
-              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleGenerateSecret}
+                  className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex items-center space-x-1 transition-colors"
+                  title="Generate a random secure API secret"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  <span>Generate</span>
+                </button>
+                {secret.length > 0 && (
+                  <span className="text-[10px] text-zinc-500 font-mono">
+                    {secret.length} chars
+                  </span>
+                )}
+              </div>
             </div>
             <div className="relative">
               <input
