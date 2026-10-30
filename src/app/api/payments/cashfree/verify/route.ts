@@ -7,11 +7,13 @@ export async function GET(request: NextRequest) {
   const uid = searchParams.get('uid');
   const isDemo = searchParams.get('demo') === 'true';
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const origin =
-    request.nextUrl.origin ||
-    request.headers.get('origin') ||
-    process.env.NEXT_PUBLIC_APP_URL ||
-    'http://localhost:3000';
+    appUrl && !appUrl.includes('localhost')
+      ? appUrl.replace(/\/$/, '')
+      : request.nextUrl.origin && !request.nextUrl.origin.includes('localhost')
+      ? 'https://syntoze-api-manager.vercel.app'
+      : request.nextUrl.origin || 'http://localhost:3000';
 
   // Demo / Dev simulation mode
   if (isDemo) {

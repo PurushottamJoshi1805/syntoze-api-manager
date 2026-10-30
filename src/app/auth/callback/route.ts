@@ -8,10 +8,15 @@ export async function GET(request: Request) {
   const errorDescription = searchParams.get('error_description');
   const next = searchParams.get('next') ?? '/';
 
-  // Determine the best redirect base URL (handles localhost and proxy/Vercel domains)
-  const forwardedHost = request.headers.get('x-forwarded-host');
+  // Determine the best redirect base URL (prioritizing custom/production app URL over internal Vercel preview hosts)
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const isLocalEnv = process.env.NODE_ENV === 'development';
-  const redirectBase = isLocalEnv ? origin : forwardedHost ? `https://${forwardedHost}` : origin;
+  const redirectBase =
+    appUrl && !appUrl.includes('localhost')
+      ? appUrl.replace(/\/$/, '')
+      : isLocalEnv
+      ? origin
+      : 'https://syntoze-api-manager.vercel.app';
 
   // If Supabase returned an OAuth error directly in query params
   if (errorParam || errorDescription) {

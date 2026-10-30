@@ -164,7 +164,16 @@ function AuthForm() {
 
     try {
       const supabase = createClient();
-      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      const baseUrl =
+        typeof window !== 'undefined'
+          ? window.location.hostname.includes('localhost')
+            ? window.location.origin
+            : appUrl && !appUrl.includes('localhost')
+            ? appUrl.replace(/\/$/, '')
+            : 'https://syntoze-api-manager.vercel.app'
+          : undefined;
+      const redirectUrl = baseUrl ? `${baseUrl}/auth/callback` : undefined;
 
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,

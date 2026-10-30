@@ -104,10 +104,21 @@ export default function SignUpPage() {
     setError('');
     try {
       const supabase = createClient();
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+      const baseUrl =
+        typeof window !== 'undefined'
+          ? window.location.hostname.includes('localhost')
+            ? window.location.origin
+            : appUrl && !appUrl.includes('localhost')
+            ? appUrl.replace(/\/$/, '')
+            : 'https://syntoze-api-manager.vercel.app'
+          : undefined;
+      const redirectUrl = baseUrl ? `${baseUrl}/auth/callback` : `${window.location.origin}/auth/callback`;
+
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: redirectUrl,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',

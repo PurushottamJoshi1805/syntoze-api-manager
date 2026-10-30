@@ -37,11 +37,13 @@ export async function POST(request: NextRequest) {
         ? 'https://api.cashfree.com/pg'
         : 'https://sandbox.cashfree.com/pg';
 
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
     const origin =
-      request.nextUrl.origin ||
-      request.headers.get('origin') ||
-      process.env.NEXT_PUBLIC_APP_URL ||
-      'http://localhost:3000';
+      appUrl && !appUrl.includes('localhost')
+        ? appUrl.replace(/\/$/, '')
+        : request.nextUrl.origin && !request.nextUrl.origin.includes('localhost')
+        ? 'https://syntoze-api-manager.vercel.app'
+        : request.nextUrl.origin || 'http://localhost:3000';
 
     // Unique order ID (Alphanumeric, max 45 chars)
     const sanitizedUserId = user.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
