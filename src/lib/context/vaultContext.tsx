@@ -46,7 +46,6 @@ import {
   deleteAllCredentials as dbDeleteAllCredentials,
   updateVaultAutoLockMinutes as dbUpdateVaultAutoLockMinutes,
   getUserSubscription,
-  activateProSubscription,
 } from '../supabase/database';
 import { createClient } from '../supabase/client';
 import { formatSeconds } from '../utils';
@@ -160,7 +159,7 @@ interface VaultContextType {
   openPricingModal: () => void;
   closePricingModal: () => void;
   refreshSubscription: () => Promise<void>;
-  activateProPlan: (billingCycle?: 'monthly' | 'lifetime', orderId?: string) => Promise<boolean>;
+  verifyAndSyncCashfreeOrder: (orderId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
@@ -256,7 +255,18 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const refreshSubscription = useCallback(async () => {
     try {
       const sub = await getUserSubscription();
-      if (sub) {
+      const supabase = createClient();
+      const {
+        data: { user: currentUser },
+      } = await supabase.auth.getUser();
+
+      if (
+        sub &&
+        currentUser &&
+        sub.user_id === currentUser.id &&
+        sub.status === 'active' &&
+        (sub.plan === 'pro' || sub.plan === 'team')
+      ) {
         setUserSubscription({
           id: sub.id,
           userId: sub.user_id,
@@ -271,27 +281,41 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
           createdAt: sub.created_at,
           updatedAt: sub.updated_at,
         });
+      } else {
+        setUserSubscription(null);
       }
     } catch {
-      // Safe fallback
+      setUserSubscription(null);
     }
   }, []);
 
-  const activateProPlan = useCallback(
-    async (billingCycle: 'monthly' | 'lifetime' = 'monthly', orderId?: string) => {
+  const verifyAndSyncCashfreeOrder = useCallback(
+    async (orderId: string): Promise<{ success: boolean; error?: string }> => {
+      const cleanId = orderId?.trim();
+      if (!cleanId) {
+        toast.error('Please enter a valid Cashfree Order ID.');
+        return { success: false, error: 'Order ID is required' };
+      }
+
       try {
-        const ok = await activateProSubscription(billingCycle, orderId);
-        if (ok) {
-          await refreshSubscription();
-          toast.success('Syntoze Pro activated! Unlimited credentials unlocked.');
-          return true;
-        } else {
-          toast.error('Failed to sync Pro status with database.');
-          return false;
+        const res = await fetch(
+          `/api/payments/cashfree/verify?order_id=${encodeURIComponent(cleanId)}&format=json`
+        );
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          const errMsg = data.error || 'Payment not verified with Cashfree.';
+          toast.error(errMsg);
+          return { success: false, error: errMsg };
         }
+
+        await refreshSubscription();
+        toast.success('Cashfree payment verified! Syntoze Pro is now active.');
+        return { success: true };
       } catch (err: any) {
-        toast.error(err?.message || 'Error activating Pro plan');
-        return false;
+        const errMsg = err?.message || 'Failed to verify Cashfree order.';
+        toast.error(errMsg);
+        return { success: false, error: errMsg };
       }
     },
     [refreshSubscription]
@@ -402,7 +426,12 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         // Load user subscription (Cashfree PG)
         try {
           const sub = await getUserSubscription();
-          if (sub) {
+          if (
+            sub &&
+            sub.user_id === authUser.id &&
+            sub.status === 'active' &&
+            (sub.plan === 'pro' || sub.plan === 'team')
+          ) {
             setUserSubscription({
               id: sub.id,
               userId: sub.user_id,
@@ -417,9 +446,12 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
               createdAt: sub.created_at,
               updatedAt: sub.updated_at,
             });
+          } else {
+            // Strictly reset to null (free) if this user has no verified paid subscription
+            setUserSubscription(null);
           }
         } catch {
-          // If subscription table not yet set up, default to free
+          setUserSubscription(null);
         }
       } catch (err) {
         console.error('Vault init error:', err);
@@ -445,8 +477,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) {
+        masterKeyRef.current = null;
+        setIsLocked(true);
         setUser(null);
-        lockVaultInternal();
+        setUserSubscription(null);
+        setCredentials([]);
+        setStoredCredentials([]);
+        setProjects([]);
+        setVaultSettings(null);
+        setIsVaultConfigured(false);
       }
     });
     return () => subscription.unsubscribe();
@@ -894,6 +933,13 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   // ----------------------------------------------------------
   const signOut = useCallback(async () => {
     lockVaultInternal();
+    setUser(null);
+    setUserSubscription(null);
+    setCredentials([]);
+    setStoredCredentials([]);
+    setProjects([]);
+    setVaultSettings(null);
+    setIsVaultConfigured(false);
     const supabase = createClient();
     await supabase.auth.signOut();
     window.location.href = '/auth/login';
@@ -1267,7 +1313,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         openPricingModal,
         closePricingModal,
         refreshSubscription,
-        activateProPlan,
+        verifyAndSyncCashfreeOrder,
         isSettingsOpen,
         openSettings,
         closeSettings,

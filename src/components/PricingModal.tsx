@@ -27,11 +27,14 @@ interface PricingModalProps {
 }
 
 export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) => {
-  const { user, isPro, credentials, refreshSubscription, activateProPlan } = useVault();
+  const { user, isPro, credentials, refreshSubscription, verifyAndSyncCashfreeOrder } = useVault();
   const [selectedPlan, setSelectedPlan] = useState<'lifetime' | 'monthly'>('lifetime');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showVerifyInput, setShowVerifyInput] = useState(false);
+  const [verifyOrderId, setVerifyOrderId] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
 
   if (!isOpen) return null;
 
@@ -69,11 +72,12 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
         redirectTarget: '_modal',
       });
 
-      // If user completed payment in modal or was redirected
+      // If user completed payment in modal or was redirected, verify with Cashfree
       if (checkoutRes?.paymentDetails || checkoutRes?.redirect) {
-        toast.success('Payment completed! Activating Pro access...');
-        await activateProPlan(selectedPlan, data.order_id);
-        onClose();
+        const verifyRes = await verifyAndSyncCashfreeOrder(data.order_id);
+        if (verifyRes.success) {
+          onClose();
+        }
       }
 
       setIsLoading(false);
@@ -192,24 +196,9 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
 
         {/* Error notification */}
         {errorMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex flex-col space-y-2">
-            <div className="flex items-start space-x-2">
-              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-              <span className="text-[11px] leading-relaxed">{errorMessage}</span>
-            </div>
-            {errorMessage.includes('Cashfree API keys') && (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsLoading(true);
-                  window.location.href = '/api/payments/cashfree/verify?demo=true';
-                }}
-                className="mt-1 w-full py-2 px-3 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-colors"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Activate Pro Upgrade (Sandbox Demo Mode)</span>
-              </button>
-            )}
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start space-x-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+            <span className="text-[11px] leading-relaxed">{errorMessage}</span>
           </div>
         )}
 
@@ -234,21 +223,51 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
           )}
         </button>
 
-        {/* Restore Pro Access link */}
+        {/* Verify Past Paid Cashfree Order */}
         {!isPro && (
           <div className="mt-3 text-center">
-            <button
-              type="button"
-              onClick={async () => {
-                setIsLoading(true);
-                const ok = await activateProPlan('monthly');
-                setIsLoading(false);
-                if (ok) onClose();
-              }}
-              className="text-[11px] text-zinc-400 hover:text-indigo-400 underline underline-offset-4 transition-colors"
-            >
-              Already completed ₹199 Cashfree payment? Restore Pro Access
-            </button>
+            {!showVerifyInput ? (
+              <button
+                type="button"
+                onClick={() => setShowVerifyInput(true)}
+                className="text-[11px] text-zinc-400 hover:text-indigo-400 underline underline-offset-4 transition-colors"
+              >
+                Already paid on Cashfree? Verify Order ID & Activate
+              </button>
+            ) : (
+              <div className="mt-2 p-3 bg-[#08090C] border border-white/[0.08] rounded-xl text-left space-y-2">
+                <label className="block text-[11px] font-medium text-zinc-300">
+                  Enter your Cashfree Order ID:
+                </label>
+                <div className="flex space-x-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. syntoze_6bd1d249_1793380435778"
+                    value={verifyOrderId}
+                    onChange={(e) => setVerifyOrderId(e.target.value)}
+                    className="flex-1 px-3 py-1.5 bg-[#0D0E14] border border-white/[0.08] rounded-lg text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-indigo-500 font-mono"
+                  />
+                  <button
+                    type="button"
+                    disabled={isVerifying || !verifyOrderId.trim()}
+                    onClick={async () => {
+                      setIsVerifying(true);
+                      const res = await verifyAndSyncCashfreeOrder(verifyOrderId.trim());
+                      setIsVerifying(false);
+                      if (res.success) {
+                        onClose();
+                      }
+                    }}
+                    className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors flex items-center space-x-1"
+                  >
+                    {isVerifying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Verify</span>}
+                  </button>
+                </div>
+                <p className="text-[10px] text-zinc-500">
+                  Only orders verified with status PAID on Cashfree can activate Pro.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

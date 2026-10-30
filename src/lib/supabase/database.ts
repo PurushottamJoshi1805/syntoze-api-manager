@@ -287,10 +287,18 @@ export interface DbSubscription {
 export async function getUserSubscription(): Promise<DbSubscription | null> {
   try {
     const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return null;
+
     const { data, error } = await supabase
       .from('user_subscriptions')
       .select('*')
-      .single();
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle();
 
     if (error || !data) return null;
     return data as DbSubscription;
@@ -304,10 +312,19 @@ export async function upsertUserSubscription(
 ): Promise<DbSubscription | null> {
   try {
     const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user || user.id !== sub.user_id) {
+      console.error('Unauthorized subscription upsert attempt.');
+      return null;
+    }
+
     const { data, error } = await supabase
       .from('user_subscriptions')
       .upsert(
-        { ...sub, updated_at: new Date().toISOString() },
+        { ...sub, user_id: user.id, updated_at: new Date().toISOString() },
         { onConflict: 'user_id' }
       )
       .select()
@@ -320,46 +337,6 @@ export async function upsertUserSubscription(
     return data as DbSubscription;
   } catch {
     return null;
-  }
-}
-
-export async function activateProSubscription(
-  billingCycle: 'monthly' | 'lifetime' = 'monthly',
-  orderId?: string
-): Promise<boolean> {
-  try {
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      throw new Error('User not authenticated');
-    }
-
-    const { error } = await supabase.from('user_subscriptions').upsert(
-      {
-        user_id: user.id,
-        plan: 'pro',
-        billing_cycle: billingCycle,
-        status: 'active',
-        order_id: orderId || `paid_cf_${Date.now()}`,
-        amount: billingCycle === 'monthly' ? 199.0 : 999.0,
-        currency: 'INR',
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    );
-
-    if (error) {
-      console.error('Failed to activate pro subscription:', error.message);
-      return false;
-    }
-
-    return true;
-  } catch (err) {
-    console.error('activateProSubscription error:', err);
-    return false;
   }
 }
 
