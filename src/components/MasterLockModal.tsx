@@ -17,6 +17,7 @@ import {
 
 export const MasterLockModal: React.FC = () => {
   const {
+    user,
     isVaultConfigured,
     isLocked,
     initializeVault,
@@ -51,7 +52,7 @@ export const MasterLockModal: React.FC = () => {
     }
   }, [isVaultConfigured]);
 
-  if (!isLocked && isVaultConfigured) {
+  if (!user || (!isLocked && isVaultConfigured)) {
     return null;
   }
 

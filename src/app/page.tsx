@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useVault } from '@/lib/context/vaultContext';
 import { Navbar } from '@/components/Navbar';
 import { MasterLockModal } from '@/components/MasterLockModal';
@@ -50,6 +51,8 @@ export default function HomePage() {
     openSettings,
   } = useVault();
 
+  const router = useRouter();
+
   const [isCredentialModalOpen, setIsCredentialModalOpen] = useState(false);
   const [editingCredential, setEditingCredential] = useState<DecryptedCredential | null>(null);
   const [rotatingCredential, setRotatingCredential] = useState<DecryptedCredential | null>(null);
@@ -57,6 +60,13 @@ export default function HomePage() {
   const [isEnvExportOpen, setIsEnvExportOpen] = useState(false);
   const [isEnvImportOpen, setIsEnvImportOpen] = useState(false);
   const [isRecoveryOpen, setIsRecoveryOpen] = useState(false);
+
+  // Redirect unauthenticated visitors to login
+  useEffect(() => {
+    if (isReady && !user) {
+      router.replace('/auth/login');
+    }
+  }, [isReady, user, router]);
 
   // Check Cashfree Payment Return Status
   useEffect(() => {
@@ -105,7 +115,7 @@ export default function HomePage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isLocked, isVaultConfigured, isCredentialModalOpen, openSettings]);
 
-  if (!isReady) {
+  if (!isReady || !user) {
     return (
       <div
         style={{
@@ -120,7 +130,9 @@ export default function HomePage() {
       >
         <div className="flex flex-col items-center space-y-3">
           <div className="h-7 w-7 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-zinc-400 font-mono">Loading vault session…</p>
+          <p className="text-xs text-zinc-400 font-mono">
+            {!isReady ? 'Loading vault session…' : 'Redirecting to login…'}
+          </p>
         </div>
       </div>
     );
