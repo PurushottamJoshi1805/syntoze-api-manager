@@ -14,9 +14,8 @@ import {
 import { cn } from '@/lib/utils';
 import {
   signUpWithEmail,
-  signInWithGoogle,
-  signInWithGitHub,
 } from '@/lib/supabase/auth-actions';
+import { createClient } from '@/lib/supabase/client';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -87,22 +86,31 @@ export default function SignUpPage() {
     });
   }
 
-  async function handleGoogleSignIn() {
-    setOauthLoading('google');
+  async function handleOAuth(provider: 'google' | 'github') {
+    setOauthLoading(provider);
+    setError('');
     try {
-      await signInWithGoogle();
-    } catch {
-      setError('Failed to initiate Google sign-in.');
-      setOauthLoading(null);
-    }
-  }
-
-  async function handleGitHubSignIn() {
-    setOauthLoading('github');
-    try {
-      await signInWithGitHub();
-    } catch {
-      setError('Failed to initiate GitHub sign-in.');
+      const supabase = createClient();
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+        setOauthLoading(null);
+        return;
+      }
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      setError(err?.message || `Failed to initiate ${provider} sign-in.`);
       setOauthLoading(null);
     }
   }
@@ -162,7 +170,7 @@ export default function SignUpPage() {
             <div className="space-y-2">
               <button
                 type="button"
-                onClick={handleGoogleSignIn}
+                onClick={() => handleOAuth('google')}
                 disabled={oauthLoading !== null || isPending}
                 className={cn(
                   'w-full flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium',
@@ -181,7 +189,7 @@ export default function SignUpPage() {
 
               <button
                 type="button"
-                onClick={handleGitHubSignIn}
+                onClick={() => handleOAuth('github')}
                 disabled={oauthLoading !== null || isPending}
                 className={cn(
                   'w-full flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-xs font-medium',

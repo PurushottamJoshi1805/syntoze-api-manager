@@ -21,9 +21,8 @@ import {
 import {
   signInWithEmail,
   signUpWithEmail,
-  signInWithGoogle,
-  signInWithGitHub,
 } from '@/lib/supabase/auth-actions';
+import { createClient } from '@/lib/supabase/client';
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -134,10 +133,27 @@ function AuthForm() {
     setError('');
     setIsEmailConflict(false);
     try {
-      if (provider === 'google') await signInWithGoogle();
-      if (provider === 'github') await signInWithGitHub();
-    } catch {
-      setError(`Failed to initialize ${provider} authentication.`);
+      const supabase = createClient();
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+        setOauthLoading(null);
+        return;
+      }
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      setError(err?.message || `Failed to initialize ${provider} authentication.`);
       setOauthLoading(null);
     }
   };
