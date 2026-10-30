@@ -16,12 +16,7 @@ import {
   Layers,
   CheckCircle2,
   AlertTriangle,
-  ExternalLink,
 } from 'lucide-react';
-import {
-  signInWithEmail,
-  signUpWithEmail,
-} from '@/lib/supabase/auth-actions';
 import { createClient } from '@/lib/supabase/client';
 
 function GoogleIcon({ className }: { className?: string }) {
@@ -63,92 +58,131 @@ function AuthForm() {
   const [error, setError] = useState('');
   const [isEmailConflict, setIsEmailConflict] = useState(false);
   const [success, setSuccess] = useState('');
-  const [isPending, startTransition] = useTransition();
+  const [isLoading, setIsLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<'google' | 'github' | null>(null);
 
   useEffect(() => {
-    // 1. Check all URL query parameters
-    const errParam = searchParams.get('error');
-    const errDesc = searchParams.get('error_description');
-    const fullRawError = `${errParam || ''} ${errDesc || ''}`;
+    try {
+      const errParam = searchParams.get('error') || '';
+      const errDesc = searchParams.get('error_description') || '';
+      let hash = '';
+      if (typeof window !== 'undefined' && window.location.hash) {
+        hash = window.location.hash;
+      }
+      const rawText = `${errParam} ${errDesc} ${hash}`.toLowerCase();
 
-    // 2. Check URL hash fragment if present
-    let hashError = '';
-    if (typeof window !== 'undefined' && window.location.hash) {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      hashError = `${params.get('error') || ''} ${params.get('error_description') || ''}`;
-    }
-
-    const combined = decodeURIComponent(`${fullRawError} ${hashError}`).replace(/\+/g, ' ');
-
-    if (
-      combined.includes('Multiple accounts with the same email') ||
-      combined.includes('linking domain') ||
-      combined.includes('different providers')
-    ) {
-      setIsEmailConflict(true);
-      setError('');
-    } else if (errDesc) {
-      setError(decodeURIComponent(errDesc).replace(/\+/g, ' '));
-    } else if (errParam && errParam !== 'auth_callback_failed') {
-      setError(decodeURIComponent(errParam).replace(/\+/g, ' '));
+      if (
+        rawText.includes('multiple accounts with the same email') ||
+        rawText.includes('linking domain') ||
+        rawText.includes('different providers')
+      ) {
+        setIsEmailConflict(true);
+        setError('');
+      } else if (errDesc) {
+        setError(errDesc.replace(/\+/g, ' '));
+      } else if (errParam && errParam !== 'auth_callback_failed') {
+        setError(errParam.replace(/\+/g, ' '));
+      }
+    } catch {
+      // Safe fallback
     }
   }, [searchParams]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Handle Email + Password Login or Signup directly via Supabase browser client
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
     setIsEmailConflict(false);
 
-    if (isSignUp && password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long.');
       return;
     }
 
-    const formData = new FormData();
-    formData.append('email', email);
-    formData.append('password', password);
+    setIsLoading(true);
 
-    startTransition(async () => {
+    try {
+      const supabase = createClient();
+
       if (isSignUp) {
-        const res = await signUpWithEmail(formData);
-        if (res?.error) {
-          setError(res.error);
-        } else if (res?.success) {
-          setSuccess(res.success);
+        // Sign up flow
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password: password.trim(),
+          options: {
+            emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined,
+          },
+        });
+
+        if (signUpError) {
+          setError(signUpError.message);
+          setIsLoading(false);
+          return;
+        }
+
+        if (data?.session) {
+          window.location.href = '/';
+        } else {
+          setSuccess('Account created! Please check your email inbox to confirm your account.');
+          setIsLoading(false);
         }
       } else {
-        const res = await signInWithEmail(formData);
-        if (res?.error) {
-          setError(res.error);
+        // Sign in flow
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password: password.trim(),
+        });
+
+        if (signInError) {
+          if (signInError.message.includes('Invalid login credentials')) {
+            setError('Invalid email or password. If you do not have an account yet, click "Create an account" below.');
+          } else {
+            setError(signInError.message);
+          }
+          setIsLoading(false);
+          return;
+        }
+
+        if (data?.session) {
+          window.location.href = '/';
+        } else {
+          window.location.href = '/';
         }
       }
-    });
+    } catch (err: any) {
+      setError(err?.message || 'Authentication failed. Please verify your connection.');
+      setIsLoading(false);
+    }
   };
 
+  // Handle OAuth with direct browser redirect
   const handleOAuth = async (provider: 'google' | 'github') => {
     setOauthLoading(provider);
     setError('');
     setIsEmailConflict(false);
+
     try {
       const supabase = createClient();
+      const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
+
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: redirectUrl,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
           },
         },
       });
+
       if (oauthError) {
         setError(oauthError.message);
         setOauthLoading(null);
         return;
       }
+
       if (data?.url) {
         window.location.href = data.url;
       }
@@ -160,9 +194,8 @@ function AuthForm() {
 
   return (
     <div className="w-full min-h-screen flex flex-col lg:flex-row bg-[#08090C] text-slate-100 font-sans selection:bg-indigo-500/30 selection:text-white">
-      {/* Left Column: High-craft developer value proposition & live crypto terminal */}
+      {/* Left Column: Developer Value Pitch & Crypto Terminal */}
       <div className="lg:w-7/12 p-8 sm:p-12 lg:p-16 flex flex-col justify-between border-b lg:border-b-0 lg:border-r border-white/[0.06] relative overflow-hidden bg-developer-grid">
-        {/* Ambient subtle glow */}
         <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-indigo-600/[0.08] rounded-full blur-[140px] pointer-events-none" />
         <div className="absolute bottom-0 right-0 w-[450px] h-[450px] bg-cyan-600/[0.05] rounded-full blur-[160px] pointer-events-none" />
 
@@ -216,7 +249,7 @@ function AuthForm() {
             </div>
           </div>
 
-          {/* Core Feature Pillars */}
+          {/* Feature Highlights */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
             <div className="p-3.5 rounded-xl bg-zinc-900/40 border border-white/[0.06]">
               <div className="flex items-center space-x-2 mb-1.5">
@@ -260,7 +293,6 @@ function AuthForm() {
       {/* Right Column: Clean, high-density authentication card */}
       <div className="lg:w-5/12 flex items-center justify-center p-6 sm:p-12 relative bg-[#090A0F]">
         <div className="w-full max-w-md bg-[#0D0E14] border border-white/[0.08] rounded-2xl p-7 sm:p-8 shadow-2xl relative">
-          {/* Subtle top edge highlight */}
           <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/15 to-transparent rounded-t-2xl" />
 
           {/* Form Header */}
@@ -270,7 +302,7 @@ function AuthForm() {
             </h2>
             <p className="text-xs text-zinc-400 mt-1">
               {isSignUp
-                ? 'Free zero-knowledge personal vault. No credit card required.'
+                ? 'Free zero-knowledge personal vault. Enter email & password.'
                 : 'Sign in to decrypt and manage your developer credentials.'}
             </p>
           </div>
@@ -280,8 +312,8 @@ function AuthForm() {
             <button
               type="button"
               onClick={() => handleOAuth('google')}
-              disabled={oauthLoading !== null || isPending}
-              className="w-full flex items-center justify-center space-x-2.5 px-4 py-2.5 rounded-lg text-xs font-medium bg-white text-zinc-950 hover:bg-zinc-200 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-[0.99]"
+              disabled={oauthLoading !== null || isLoading}
+              className="w-full flex items-center justify-center space-x-2.5 px-4 py-2.5 rounded-lg text-xs font-medium bg-white text-zinc-950 hover:bg-zinc-200 transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-[0.99] disabled:opacity-50"
             >
               {oauthLoading === 'google' ? (
                 <Loader2 className="w-4 h-4 animate-spin text-zinc-700" />
@@ -294,8 +326,8 @@ function AuthForm() {
             <button
               type="button"
               onClick={() => handleOAuth('github')}
-              disabled={oauthLoading !== null || isPending}
-              className="w-full flex items-center justify-center space-x-2.5 px-4 py-2.5 rounded-lg text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 border border-white/[0.08] hover:border-white/[0.15] transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-[0.99]"
+              disabled={oauthLoading !== null || isLoading}
+              className="w-full flex items-center justify-center space-x-2.5 px-4 py-2.5 rounded-lg text-xs font-medium bg-zinc-900 text-white hover:bg-zinc-800 border border-white/[0.08] hover:border-white/[0.15] transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 active:scale-[0.99] disabled:opacity-50"
             >
               {oauthLoading === 'github' ? (
                 <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
@@ -307,18 +339,16 @@ function AuthForm() {
           </div>
 
           {/* Divider */}
-          <div className="relative my-4">
+          <div className="relative my-5">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/[0.06]" />
+              <div className="w-full border-t border-white/[0.08]" />
             </div>
-            <div className="relative flex justify-center text-[10px]">
-              <span className="bg-[#0D0E14] px-2 text-zinc-500 lowercase">
-                or continue with email
-              </span>
+            <div className="relative flex justify-center text-[10px] uppercase font-mono tracking-wider">
+              <span className="bg-[#0D0E14] px-2.5 text-zinc-500">or use work email</span>
             </div>
           </div>
 
-          {/* SPECIAL: Supabase Email Conflict Alert (Direct solution for user's screenshot) */}
+          {/* Supabase Email Conflict Alert */}
           {isEmailConflict && (
             <div className="p-3.5 mb-5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 animate-in fade-in duration-200 space-y-2">
               <div className="flex items-start space-x-2.5">
@@ -326,7 +356,7 @@ function AuthForm() {
                 <div className="space-y-1">
                   <p className="font-semibold text-amber-300">Account already registered with Google</p>
                   <p className="text-[11px] text-amber-200/80 leading-relaxed">
-                    This email is already associated with your Google sign-in. To prevent account hijacking, Supabase requires you to sign in with your primary provider:
+                    This email was previously used to sign in with Google. Click below to sign in directly with your verified Google account:
                   </p>
                 </div>
               </div>
@@ -341,7 +371,7 @@ function AuthForm() {
             </div>
           )}
 
-          {/* Generic Error Alert */}
+          {/* Error Alert */}
           {error && !isEmailConflict && (
             <div className="p-3 mb-4 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300 flex items-start space-x-2 animate-in fade-in duration-150">
               <AlertCircle className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
@@ -405,10 +435,10 @@ function AuthForm() {
 
             <button
               type="submit"
-              disabled={isPending}
+              disabled={isLoading}
               className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-lg shadow-sm transition-all flex items-center justify-center space-x-2 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isPending ? (
+              {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
                 <>

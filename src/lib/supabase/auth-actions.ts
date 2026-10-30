@@ -5,42 +5,51 @@ import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
 
 export async function signInWithEmail(formData: FormData) {
-  const email = formData.get('email') as string;
-  const password = formData.get('password') as string;
-  const supabase = await createServerSupabaseClient();
+  try {
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const supabase = await createServerSupabaseClient();
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-  if (error) {
-    return { error: error.message };
+    if (error) {
+      return { error: error.message };
+    }
+
+    redirect('/');
+  } catch (err: any) {
+    if (err?.message?.includes('NEXT_REDIRECT')) throw err;
+    return { error: err?.message || 'Authentication failed.' };
   }
-
-  redirect('/');
 }
 
 export async function signUpWithEmail(formData: FormData) {
-  const email = formData.get('email') as string;
-  const password = formData.get('password') as string;
-  const supabase = await createServerSupabaseClient();
-  const headersList = await headers();
-  const origin = headersList.get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  try {
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
+    const supabase = await createServerSupabaseClient();
+    const headersList = await headers();
+    const origin = headersList.get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
-  const { error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo: `${origin}/auth/callback`,
-    },
-  });
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: `${origin}/auth/callback`,
+      },
+    });
 
-  if (error) {
-    return { error: error.message };
+    if (error) {
+      return { error: error.message };
+    }
+
+    return { success: 'Check your email for a confirmation link.' };
+  } catch (err: any) {
+    return { error: err?.message || 'Failed to sign up.' };
   }
-
-  return { success: 'Check your email for a confirmation link.' };
 }
 
 export async function signInWithGoogle() {

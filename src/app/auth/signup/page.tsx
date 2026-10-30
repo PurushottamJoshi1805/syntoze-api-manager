@@ -72,16 +72,29 @@ export default function SignUpPage() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append('email', email);
-    formData.append('password', password);
-
     startTransition(async () => {
-      const result = await signUpWithEmail(formData);
-      if (result?.error) {
-        setError(result.error);
-      } else {
-        setSuccess(true);
+      try {
+        const supabase = createClient();
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password: password.trim(),
+          options: {
+            emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined,
+          },
+        });
+
+        if (signUpError) {
+          setError(signUpError.message);
+          return;
+        }
+
+        if (data?.session) {
+          window.location.href = '/';
+        } else {
+          setSuccess(true);
+        }
+      } catch (err: any) {
+        setError(err?.message || 'Failed to create account. Please check your network.');
       }
     });
   }
