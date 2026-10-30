@@ -1,0 +1,858 @@
+'use client';
+
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react';
+import {
+  Project,
+  StoredCredential,
+  DecryptedCredential,
+  VaultSettings,
+  UserProfile,
+  ProviderType,
+  EnvironmentType,
+} from '../types/vault';
+import {
+  generateRecoveryCode,
+  setupVault,
+  unlockVault as cryptoUnlock,
+  unlockWithRecovery as cryptoRecoveryUnlock,
+  encryptString,
+  decryptString,
+} from '../crypto/vaultCrypto';
+import {
+  getVaultSettings,
+  upsertVaultSettings,
+  getProjects,
+  createProject as dbCreateProject,
+  deleteProject as dbDeleteProject,
+  getCredentials,
+  createCredential as dbCreateCredential,
+  createCredentialsBatch as dbCreateCredentialsBatch,
+  updateCredential as dbUpdateCredential,
+  deleteCredential as dbDeleteCredential,
+} from '../supabase/database';
+import { createClient } from '../supabase/client';
+import { formatSeconds } from '../utils';
+
+// ============================================================
+// CONTEXT TYPES
+// ============================================================
+
+interface VaultContextType {
+  // State
+  isReady: boolean;
+  isVaultConfigured: boolean;
+  isLocked: boolean;
+  user: UserProfile | null;
+  vaultSettings: VaultSettings | null;
+  projects: Project[];
+  credentials: DecryptedCredential[];
+  autoLockMinutes: number;
+  secondsUntilLock: number;
+
+  // Filters
+  activeProjectId: string;
+  activeEnvironment: EnvironmentType | 'all';
+  activeProvider: ProviderType | 'all';
+  searchQuery: string;
+
+  // Auth
+  signOut: () => Promise<void>;
+
+  // Vault lifecycle
+  initializeVault: (
+    passphrase: string,
+    autoLockMinutes?: number
+  ) => Promise<{ recoveryCode: string }>;
+  unlockVault: (passphrase: string) => Promise<{ success: boolean; error?: string }>;
+  unlockWithRecovery: (code: string) => Promise<{ success: boolean; error?: string }>;
+  lockVault: () => void;
+  resetVault: () => Promise<void>;
+
+  // Credentials CRUD
+  addCredential: (data: {
+    projectId: string | null;
+    provider: ProviderType;
+    name: string;
+    environment: EnvironmentType;
+    secret: string;
+    notes?: string;
+    expiresAt?: string;
+  }) => Promise<void>;
+  batchAddCredentials: (items: Array<{
+    projectId: string | null;
+    provider: ProviderType;
+    name: string;
+    environment: EnvironmentType;
+    secret: string;
+    notes?: string;
+  }>) => Promise<number>;
+  updateCredential: (
+    id: string,
+    data: Partial<{
+      projectId: string | null;
+      provider: ProviderType;
+      name: string;
+      environment: EnvironmentType;
+      secret?: string;
+      notes?: string;
+      expiresAt?: string;
+    }>
+  ) => Promise<void>;
+  deleteCredential: (id: string) => Promise<void>;
+  toggleRevealSecret: (id: string) => void;
+
+  // Projects
+  addProject: (name: string, description?: string, color?: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
+
+  // Export
+  exportEnvFormat: (projectId: string, environment: EnvironmentType) => string;
+
+  // Filters
+  setActiveProjectId: (id: string) => void;
+  setActiveEnvironment: (env: EnvironmentType | 'all') => void;
+  setActiveProvider: (prov: ProviderType | 'all') => void;
+  setSearchQuery: (q: string) => void;
+
+  // Refresh
+  refreshData: () => Promise<void>;
+}
+
+const VaultContext = createContext<VaultContextType | undefined>(undefined);
+
+// ============================================================
+// PROVIDER
+// ============================================================
+
+export function VaultProvider({ children }: { children: React.ReactNode }) {
+  const [isReady, setIsReady] = useState(false);
+  const [isVaultConfigured, setIsVaultConfigured] = useState(false);
+  const [isLocked, setIsLocked] = useState(true);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [vaultSettings, setVaultSettings] = useState<VaultSettings | null>(null);
+
+  const masterKeyRef = useRef<CryptoKey | null>(null);
+
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [storedCredentials, setStoredCredentials] = useState<StoredCredential[]>([]);
+  const [credentials, setCredentials] = useState<DecryptedCredential[]>([]);
+
+  // Filters
+  const [activeProjectId, setActiveProjectId] = useState('all');
+  const [activeEnvironment, setActiveEnvironment] = useState<EnvironmentType | 'all'>('all');
+  const [activeProvider, setActiveProvider] = useState<ProviderType | 'all'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Auto-lock
+  const [autoLockMinutes, setAutoLockMinutes] = useState(15);
+  const [secondsUntilLock, setSecondsUntilLock] = useState(15 * 60);
+  const lastActiveRef = useRef<number>(Date.now());
+
+  // ----------------------------------------------------------
+  // INIT: Load user, vault settings, projects, credentials
+  // ----------------------------------------------------------
+  useEffect(() => {
+    let cancelled = false;
+
+    // Safety timeout to ensure isReady is never stuck indefinitely
+    const safetyTimer = setTimeout(() => {
+      if (!cancelled) {
+        setIsReady(true);
+      }
+    }, 3500);
+
+    async function init() {
+      try {
+        const supabase = createClient();
+        const {
+          data: { user: authUser },
+        } = await supabase.auth.getUser();
+
+        if (!authUser || cancelled) {
+          setIsReady(true);
+          return;
+        }
+
+        setUser({
+          id: authUser.id,
+          email: authUser.email || '',
+          fullName: authUser.user_metadata?.full_name || authUser.user_metadata?.name,
+          avatarUrl: authUser.user_metadata?.avatar_url,
+        });
+
+        // Load vault settings
+        const settings = await getVaultSettings();
+        if (settings) {
+          const mapped: VaultSettings = {
+            id: settings.id,
+            userId: settings.user_id,
+            vaultSalt: settings.vault_salt,
+            keyCheckCiphertext: settings.key_check_ciphertext,
+            keyCheckIv: settings.key_check_iv,
+            recoveryHash: settings.recovery_hash,
+            recoveryEncryptedKey: settings.recovery_encrypted_key,
+            recoverySalt: settings.recovery_salt,
+            autoLockMinutes: settings.auto_lock_minutes,
+            createdAt: settings.created_at,
+            updatedAt: settings.updated_at,
+          };
+          setVaultSettings(mapped);
+          setIsVaultConfigured(true);
+          setAutoLockMinutes(mapped.autoLockMinutes);
+          setSecondsUntilLock(mapped.autoLockMinutes * 60);
+        }
+
+        // Load projects
+        const dbProjects = await getProjects();
+        setProjects(
+          dbProjects.map((p) => ({
+            id: p.id,
+            userId: p.user_id,
+            name: p.name,
+            slug: p.slug,
+            description: p.description,
+            color: p.color,
+            createdAt: p.created_at,
+            updatedAt: p.updated_at,
+          }))
+        );
+
+        // Load encrypted credentials
+        const dbCreds = await getCredentials();
+        const mapped: StoredCredential[] = dbCreds.map((c) => ({
+          id: c.id,
+          userId: c.user_id,
+          projectId: c.project_id,
+          provider: c.provider as ProviderType,
+          name: c.name,
+          environment: c.environment as EnvironmentType,
+          encryptedCiphertext: c.encrypted_ciphertext,
+          iv: c.iv,
+          notes: c.notes,
+          expiresAt: c.expires_at,
+          createdAt: c.created_at,
+          updatedAt: c.updated_at,
+        }));
+        setStoredCredentials(mapped);
+        // Credentials stay encrypted in state until vault is unlocked
+        setCredentials(
+          mapped.map((c) => ({ ...c, plaintextSecret: undefined, isRevealed: false }))
+        );
+      } catch (err) {
+        console.error('Vault init error:', err);
+      } finally {
+        clearTimeout(safetyTimer);
+        if (!cancelled) setIsReady(true);
+      }
+    }
+
+    init();
+    return () => {
+      cancelled = true;
+      clearTimeout(safetyTimer);
+    };
+  }, []);
+
+  // ----------------------------------------------------------
+  // AUTH STATE LISTENER
+  // ----------------------------------------------------------
+  useEffect(() => {
+    const supabase = createClient();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        setUser(null);
+        lockVaultInternal();
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // ----------------------------------------------------------
+  // DECRYPT ALL CREDENTIALS
+  // ----------------------------------------------------------
+  const decryptAllCredentials = useCallback(
+    async (creds: StoredCredential[], key: CryptoKey): Promise<DecryptedCredential[]> => {
+      const results: DecryptedCredential[] = [];
+      for (const cred of creds) {
+        try {
+          const plaintext = await decryptString(
+            { ciphertext: cred.encryptedCiphertext, iv: cred.iv },
+            key
+          );
+          results.push({ ...cred, plaintextSecret: plaintext, isRevealed: false });
+        } catch {
+          results.push({ ...cred, plaintextSecret: '[Decryption Error]', isRevealed: false });
+        }
+      }
+      return results;
+    },
+    []
+  );
+
+  // ----------------------------------------------------------
+  // LOCK / UNLOCK
+  // ----------------------------------------------------------
+  const lockVaultInternal = useCallback(() => {
+    masterKeyRef.current = null;
+    setIsLocked(true);
+    setCredentials((prev) =>
+      prev.map((c) => ({ ...c, plaintextSecret: undefined, isRevealed: false }))
+    );
+  }, []);
+
+  const lockVault = useCallback(() => {
+    lockVaultInternal();
+  }, [lockVaultInternal]);
+
+  const recordActivity = useCallback(() => {
+    lastActiveRef.current = Date.now();
+    setSecondsUntilLock(autoLockMinutes * 60);
+  }, [autoLockMinutes]);
+
+  // Auto-lock timer
+  useEffect(() => {
+    if (isLocked) return;
+
+    const handle = () => recordActivity();
+    window.addEventListener('mousemove', handle);
+    window.addEventListener('keydown', handle);
+    window.addEventListener('click', handle);
+
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - lastActiveRef.current) / 1000);
+      const remaining = Math.max(0, autoLockMinutes * 60 - elapsed);
+      setSecondsUntilLock(remaining);
+      if (remaining <= 0) lockVaultInternal();
+    }, 1000);
+
+    return () => {
+      window.removeEventListener('mousemove', handle);
+      window.removeEventListener('keydown', handle);
+      window.removeEventListener('click', handle);
+      clearInterval(interval);
+    };
+  }, [isLocked, autoLockMinutes, lockVaultInternal, recordActivity]);
+
+  // ----------------------------------------------------------
+  // INITIALIZE VAULT (first-time setup)
+  // ----------------------------------------------------------
+  const initializeVault = useCallback(
+    async (passphrase: string, lockMins = 15): Promise<{ recoveryCode: string }> => {
+      const recoveryCode = generateRecoveryCode();
+      const result = await setupVault(passphrase, recoveryCode);
+
+      // Persist to Supabase
+      const supabase = createClient();
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
+      if (!authUser) throw new Error('Not authenticated');
+
+      const saved = await upsertVaultSettings({
+        user_id: authUser.id,
+        vault_salt: result.salt,
+        key_check_ciphertext: result.keyCheckCiphertext,
+        key_check_iv: result.keyCheckIv,
+        recovery_hash: result.recoveryHash,
+        recovery_encrypted_key: result.recoveryEncryptedKey,
+        recovery_salt: result.recoverySalt,
+        auto_lock_minutes: lockMins,
+      });
+
+      if (saved) {
+        const mapped: VaultSettings = {
+          id: saved.id,
+          userId: saved.user_id,
+          vaultSalt: saved.vault_salt,
+          keyCheckCiphertext: saved.key_check_ciphertext,
+          keyCheckIv: saved.key_check_iv,
+          recoveryHash: saved.recovery_hash,
+          recoveryEncryptedKey: saved.recovery_encrypted_key,
+          recoverySalt: saved.recovery_salt,
+          autoLockMinutes: saved.auto_lock_minutes,
+          createdAt: saved.created_at,
+          updatedAt: saved.updated_at,
+        };
+        setVaultSettings(mapped);
+      }
+
+      setIsVaultConfigured(true);
+      setAutoLockMinutes(lockMins);
+      masterKeyRef.current = result.masterKey;
+      setIsLocked(false);
+      recordActivity();
+
+      return { recoveryCode };
+    },
+    [recordActivity]
+  );
+
+  // ----------------------------------------------------------
+  // UNLOCK VAULT
+  // ----------------------------------------------------------
+  const unlockVault = useCallback(
+    async (passphrase: string): Promise<{ success: boolean; error?: string }> => {
+      if (!vaultSettings) return { success: false, error: 'Vault not configured.' };
+
+      const res = await cryptoUnlock(
+        passphrase,
+        vaultSettings.vaultSalt,
+        vaultSettings.keyCheckCiphertext,
+        vaultSettings.keyCheckIv
+      );
+
+      if (res.success && res.masterKey) {
+        masterKeyRef.current = res.masterKey;
+        const decrypted = await decryptAllCredentials(storedCredentials, res.masterKey);
+        setCredentials(decrypted);
+        setIsLocked(false);
+        recordActivity();
+        return { success: true };
+      }
+      return { success: false, error: res.error };
+    },
+    [vaultSettings, storedCredentials, decryptAllCredentials, recordActivity]
+  );
+
+  // ----------------------------------------------------------
+  // RECOVERY UNLOCK
+  // ----------------------------------------------------------
+  const unlockWithRecovery = useCallback(
+    async (code: string): Promise<{ success: boolean; error?: string }> => {
+      if (!vaultSettings) return { success: false, error: 'Vault not configured.' };
+
+      const res = await cryptoRecoveryUnlock(
+        code,
+        vaultSettings.recoveryEncryptedKey,
+        vaultSettings.recoverySalt,
+        vaultSettings.keyCheckCiphertext,
+        vaultSettings.keyCheckIv
+      );
+
+      if (res.success && res.masterKey) {
+        masterKeyRef.current = res.masterKey;
+        const decrypted = await decryptAllCredentials(storedCredentials, res.masterKey);
+        setCredentials(decrypted);
+        setIsLocked(false);
+        recordActivity();
+        return { success: true };
+      }
+      return { success: false, error: res.error };
+    },
+    [vaultSettings, storedCredentials, decryptAllCredentials, recordActivity]
+  );
+
+  // ----------------------------------------------------------
+  // ADD CREDENTIAL
+  // ----------------------------------------------------------
+  const addCredential = useCallback(
+    async (data: {
+      projectId: string | null;
+      provider: ProviderType;
+      name: string;
+      environment: EnvironmentType;
+      secret: string;
+      notes?: string;
+      expiresAt?: string;
+    }) => {
+      if (!masterKeyRef.current) throw new Error('Vault is locked');
+
+      // Encrypt in browser
+      const encrypted = await encryptString(data.secret, masterKeyRef.current);
+
+      // Store ciphertext in Supabase
+      const dbCred = await dbCreateCredential({
+        project_id: data.projectId,
+        provider: data.provider,
+        name: data.name,
+        environment: data.environment,
+        encrypted_ciphertext: encrypted.ciphertext,
+        iv: encrypted.iv,
+        notes: data.notes,
+        expires_at: data.expiresAt,
+      });
+
+      const newStored: StoredCredential = {
+        id: dbCred.id,
+        userId: dbCred.user_id,
+        projectId: dbCred.project_id,
+        provider: dbCred.provider as ProviderType,
+        name: dbCred.name,
+        environment: dbCred.environment as EnvironmentType,
+        encryptedCiphertext: dbCred.encrypted_ciphertext,
+        iv: dbCred.iv,
+        notes: dbCred.notes,
+        expiresAt: dbCred.expires_at,
+        createdAt: dbCred.created_at,
+        updatedAt: dbCred.updated_at,
+      };
+
+      setStoredCredentials((prev) => [newStored, ...prev]);
+      setCredentials((prev) => [
+        { ...newStored, plaintextSecret: data.secret, isRevealed: false },
+        ...prev,
+      ]);
+    },
+    []
+  );
+
+  // ----------------------------------------------------------
+  // BATCH ADD CREDENTIALS (.env import)
+  // ----------------------------------------------------------
+  const batchAddCredentials = useCallback(
+    async (items: Array<{
+      projectId: string | null;
+      provider: ProviderType;
+      name: string;
+      environment: EnvironmentType;
+      secret: string;
+      notes?: string;
+    }>): Promise<number> => {
+      if (!masterKeyRef.current) throw new Error('Vault is locked');
+      if (items.length === 0) return 0;
+
+      // 1. Encrypt all secrets concurrently in browser
+      const encryptedRows = await Promise.all(
+        items.map(async (item) => {
+          const enc = await encryptString(item.secret, masterKeyRef.current!);
+          return {
+            project_id: item.projectId,
+            provider: item.provider,
+            name: item.name,
+            environment: item.environment,
+            encrypted_ciphertext: enc.ciphertext,
+            iv: enc.iv,
+            notes: item.notes,
+            _plaintext: item.secret,
+          };
+        })
+      );
+
+      // 2. Batch insert into Supabase
+      const payloadForDb = encryptedRows.map(({ _plaintext, ...rest }) => rest);
+      const inserted = await dbCreateCredentialsBatch(payloadForDb);
+
+      // 3. Update in-memory state
+      const newStoredList: StoredCredential[] = inserted.map((dbCred) => ({
+        id: dbCred.id,
+        userId: dbCred.user_id,
+        projectId: dbCred.project_id,
+        provider: dbCred.provider as ProviderType,
+        name: dbCred.name,
+        environment: dbCred.environment as EnvironmentType,
+        encryptedCiphertext: dbCred.encrypted_ciphertext,
+        iv: dbCred.iv,
+        notes: dbCred.notes,
+        expiresAt: dbCred.expires_at,
+        createdAt: dbCred.created_at,
+        updatedAt: dbCred.updated_at,
+      }));
+
+      const newDecryptedList: DecryptedCredential[] = newStoredList.map((stored, idx) => ({
+        ...stored,
+        plaintextSecret: items[idx]?.secret || '',
+        isRevealed: false,
+      }));
+
+      setStoredCredentials((prev) => [...newStoredList, ...prev]);
+      setCredentials((prev) => [...newDecryptedList, ...prev]);
+
+      return inserted.length;
+    },
+    []
+  );
+
+  // ----------------------------------------------------------
+  // UPDATE CREDENTIAL
+  // ----------------------------------------------------------
+  const updateCredential = useCallback(
+    async (
+      id: string,
+      data: Partial<{
+        projectId: string | null;
+        provider: ProviderType;
+        name: string;
+        environment: EnvironmentType;
+        secret?: string;
+        notes?: string;
+        expiresAt?: string;
+      }>
+    ) => {
+      if (!masterKeyRef.current) throw new Error('Vault is locked');
+
+      const updates: Record<string, any> = {};
+      if (data.projectId !== undefined) updates.project_id = data.projectId;
+      if (data.provider) updates.provider = data.provider;
+      if (data.name) updates.name = data.name;
+      if (data.environment) updates.environment = data.environment;
+      if (data.notes !== undefined) updates.notes = data.notes;
+      if (data.expiresAt !== undefined) updates.expires_at = data.expiresAt;
+
+      let newPlaintext: string | undefined;
+      if (data.secret) {
+        const encrypted = await encryptString(data.secret, masterKeyRef.current);
+        updates.encrypted_ciphertext = encrypted.ciphertext;
+        updates.iv = encrypted.iv;
+        newPlaintext = data.secret;
+      }
+
+      const dbCred = await dbUpdateCredential(id, updates);
+
+      setStoredCredentials((prev) =>
+        prev.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                projectId: dbCred.project_id,
+                provider: dbCred.provider as ProviderType,
+                name: dbCred.name,
+                environment: dbCred.environment as EnvironmentType,
+                encryptedCiphertext: dbCred.encrypted_ciphertext,
+                iv: dbCred.iv,
+                notes: dbCred.notes,
+                expiresAt: dbCred.expires_at,
+                updatedAt: dbCred.updated_at,
+              }
+            : c
+        )
+      );
+
+      setCredentials((prev) =>
+        prev.map((c) =>
+          c.id === id
+            ? {
+                ...c,
+                projectId: dbCred.project_id,
+                provider: dbCred.provider as ProviderType,
+                name: dbCred.name,
+                environment: dbCred.environment as EnvironmentType,
+                encryptedCiphertext: dbCred.encrypted_ciphertext,
+                iv: dbCred.iv,
+                notes: dbCred.notes,
+                expiresAt: dbCred.expires_at,
+                updatedAt: dbCred.updated_at,
+                plaintextSecret: newPlaintext || c.plaintextSecret,
+              }
+            : c
+        )
+      );
+    },
+    []
+  );
+
+  // ----------------------------------------------------------
+  // DELETE CREDENTIAL
+  // ----------------------------------------------------------
+  const deleteCredential = useCallback(async (id: string) => {
+    await dbDeleteCredential(id);
+    setStoredCredentials((prev) => prev.filter((c) => c.id !== id));
+    setCredentials((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  // ----------------------------------------------------------
+  // TOGGLE REVEAL
+  // ----------------------------------------------------------
+  const toggleRevealSecret = useCallback((id: string) => {
+    setCredentials((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, isRevealed: !c.isRevealed } : c))
+    );
+  }, []);
+
+  // ----------------------------------------------------------
+  // PROJECTS
+  // ----------------------------------------------------------
+  const addProject = useCallback(
+    async (name: string, description?: string, color = '#6366f1') => {
+      const slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+      const dbProj = await dbCreateProject({ name, slug, description, color });
+      setProjects((prev) => [
+        ...prev,
+        {
+          id: dbProj.id,
+          userId: dbProj.user_id,
+          name: dbProj.name,
+          slug: dbProj.slug,
+          description: dbProj.description,
+          color: dbProj.color,
+          createdAt: dbProj.created_at,
+          updatedAt: dbProj.updated_at,
+        },
+      ]);
+    },
+    []
+  );
+
+  const deleteProject = useCallback(async (id: string) => {
+    await dbDeleteProject(id);
+    setProjects((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
+  // ----------------------------------------------------------
+  // SIGN OUT
+  // ----------------------------------------------------------
+  const signOut = useCallback(async () => {
+    lockVaultInternal();
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    window.location.href = '/auth/login';
+  }, [lockVaultInternal]);
+
+  // ----------------------------------------------------------
+  // RESET VAULT (deletes vault settings only — user account stays)
+  // ----------------------------------------------------------
+  const resetVault = useCallback(async () => {
+    lockVaultInternal();
+    // Note: In production, you'd call a delete endpoint for vault_settings and credentials
+    // For now, just clear local state
+    setVaultSettings(null);
+    setIsVaultConfigured(false);
+    setCredentials([]);
+    setStoredCredentials([]);
+  }, [lockVaultInternal]);
+
+  // ----------------------------------------------------------
+  // EXPORT .env
+  // ----------------------------------------------------------
+  const exportEnvFormat = useCallback(
+    (projectId: string, environment: EnvironmentType): string => {
+      const matching = credentials.filter(
+        (c) =>
+          (projectId === 'all' || c.projectId === projectId) &&
+          c.environment === environment &&
+          c.plaintextSecret
+      );
+
+      const project = projects.find((p) => p.id === projectId);
+      let output = `# =========================================\n`;
+      output += `# Syntoze API Vault Export\n`;
+      output += `# Project: ${project?.name || 'All Projects'}\n`;
+      output += `# Environment: ${environment.toUpperCase()}\n`;
+      output += `# Generated: ${new Date().toISOString()}\n`;
+      output += `# =========================================\n\n`;
+
+      matching.forEach((c) => {
+        let envKey = c.name
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '_')
+          .replace(/^_+|_+$/g, '');
+        if (!envKey.includes('KEY') && !envKey.includes('SECRET') && !envKey.includes('TOKEN')) {
+          envKey += '_KEY';
+        }
+        if (c.notes) output += `# ${c.notes}\n`;
+        output += `${envKey}="${c.plaintextSecret}"\n\n`;
+      });
+
+      return output;
+    },
+    [credentials, projects]
+  );
+
+  // ----------------------------------------------------------
+  // REFRESH DATA
+  // ----------------------------------------------------------
+  const refreshData = useCallback(async () => {
+    try {
+      const dbProjects = await getProjects();
+      setProjects(
+        dbProjects.map((p) => ({
+          id: p.id,
+          userId: p.user_id,
+          name: p.name,
+          slug: p.slug,
+          description: p.description,
+          color: p.color,
+          createdAt: p.created_at,
+          updatedAt: p.updated_at,
+        }))
+      );
+
+      const dbCreds = await getCredentials();
+      const mapped: StoredCredential[] = dbCreds.map((c) => ({
+        id: c.id,
+        userId: c.user_id,
+        projectId: c.project_id,
+        provider: c.provider as ProviderType,
+        name: c.name,
+        environment: c.environment as EnvironmentType,
+        encryptedCiphertext: c.encrypted_ciphertext,
+        iv: c.iv,
+        notes: c.notes,
+        expiresAt: c.expires_at,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at,
+      }));
+      setStoredCredentials(mapped);
+
+      if (masterKeyRef.current) {
+        const decrypted = await decryptAllCredentials(mapped, masterKeyRef.current);
+        setCredentials(decrypted);
+      } else {
+        setCredentials(
+          mapped.map((c) => ({ ...c, plaintextSecret: undefined, isRevealed: false }))
+        );
+      }
+    } catch (err) {
+      console.error('Refresh error:', err);
+    }
+  }, [decryptAllCredentials]);
+
+  return (
+    <VaultContext.Provider
+      value={{
+        isReady,
+        isVaultConfigured,
+        isLocked,
+        user,
+        vaultSettings,
+        projects,
+        credentials,
+        autoLockMinutes,
+        secondsUntilLock,
+        activeProjectId,
+        activeEnvironment,
+        activeProvider,
+        searchQuery,
+        signOut,
+        initializeVault,
+        unlockVault,
+        unlockWithRecovery,
+        lockVault,
+        resetVault,
+        addCredential,
+        batchAddCredentials,
+        updateCredential,
+        deleteCredential,
+        toggleRevealSecret,
+        addProject,
+        deleteProject,
+        exportEnvFormat,
+        setActiveProjectId,
+        setActiveEnvironment,
+        setActiveProvider,
+        setSearchQuery,
+        refreshData,
+      }}
+    >
+      {children}
+    </VaultContext.Provider>
+  );
+}
+
+export function useVault() {
+  const ctx = useContext(VaultContext);
+  if (!ctx) throw new Error('useVault must be used within VaultProvider');
+  return ctx;
+}
+
