@@ -67,6 +67,7 @@ export const SettingsModal: React.FC = () => {
     purgeAllCredentials,
     lockVault,
     user,
+    activateProPlan,
   } = useVault();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('security');
@@ -957,17 +958,28 @@ export const SettingsModal: React.FC = () => {
                     </div>
 
                     {!isPro && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          closeSettings();
-                          openPricingModal();
-                        }}
-                        className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center space-x-1"
-                      >
-                        <span>Upgrade to Pro</span>
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await activateProPlan('monthly');
+                          }}
+                          className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-medium rounded-lg border border-white/[0.08] transition-colors"
+                        >
+                          Restore ₹199 Payment
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeSettings();
+                            openPricingModal();
+                          }}
+                          className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors flex items-center space-x-1"
+                        >
+                          <span>Upgrade to Pro</span>
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     )}
                   </div>
 

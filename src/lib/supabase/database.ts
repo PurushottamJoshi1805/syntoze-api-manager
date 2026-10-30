@@ -323,3 +323,44 @@ export async function upsertUserSubscription(
   }
 }
 
+export async function activateProSubscription(
+  billingCycle: 'monthly' | 'lifetime' = 'monthly',
+  orderId?: string
+): Promise<boolean> {
+  try {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    const { error } = await supabase.from('user_subscriptions').upsert(
+      {
+        user_id: user.id,
+        plan: 'pro',
+        billing_cycle: billingCycle,
+        status: 'active',
+        order_id: orderId || `paid_cf_${Date.now()}`,
+        amount: billingCycle === 'monthly' ? 199.0 : 999.0,
+        currency: 'INR',
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' }
+    );
+
+    if (error) {
+      console.error('Failed to activate pro subscription:', error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('activateProSubscription error:', err);
+    return false;
+  }
+}
+
+

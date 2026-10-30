@@ -27,7 +27,7 @@ interface PricingModalProps {
 }
 
 export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) => {
-  const { user, isPro, credentials, refreshSubscription } = useVault();
+  const { user, isPro, credentials, refreshSubscription, activateProPlan } = useVault();
   const [selectedPlan, setSelectedPlan] = useState<'lifetime' | 'monthly'>('lifetime');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -64,10 +64,17 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
       });
 
       // 3. Open Cashfree embedded checkout modal
-      await cashfree.checkout({
+      const checkoutRes: any = await cashfree.checkout({
         paymentSessionId: data.payment_session_id,
         redirectTarget: '_modal',
       });
+
+      // If user completed payment in modal or was redirected
+      if (checkoutRes?.paymentDetails || checkoutRes?.redirect) {
+        toast.success('Payment completed! Activating Pro access...');
+        await activateProPlan(selectedPlan, data.order_id);
+        onClose();
+      }
 
       setIsLoading(false);
     } catch (err: any) {
@@ -226,6 +233,24 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
             </>
           )}
         </button>
+
+        {/* Restore Pro Access link */}
+        {!isPro && (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={async () => {
+                setIsLoading(true);
+                const ok = await activateProPlan('monthly');
+                setIsLoading(false);
+                if (ok) onClose();
+              }}
+              className="text-[11px] text-zinc-400 hover:text-indigo-400 underline underline-offset-4 transition-colors"
+            >
+              Already completed ₹199 Cashfree payment? Restore Pro Access
+            </button>
+          </div>
+        )}
 
         {/* Security & Payment badge footer */}
         <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between text-[11px] text-zinc-500">

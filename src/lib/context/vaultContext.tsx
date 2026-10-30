@@ -46,6 +46,7 @@ import {
   deleteAllCredentials as dbDeleteAllCredentials,
   updateVaultAutoLockMinutes as dbUpdateVaultAutoLockMinutes,
   getUserSubscription,
+  activateProSubscription,
 } from '../supabase/database';
 import { createClient } from '../supabase/client';
 import { formatSeconds } from '../utils';
@@ -159,6 +160,7 @@ interface VaultContextType {
   openPricingModal: () => void;
   closePricingModal: () => void;
   refreshSubscription: () => Promise<void>;
+  activateProPlan: (billingCycle?: 'monthly' | 'lifetime', orderId?: string) => Promise<boolean>;
 }
 
 const VaultContext = createContext<VaultContextType | undefined>(undefined);
@@ -274,6 +276,26 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       // Safe fallback
     }
   }, []);
+
+  const activateProPlan = useCallback(
+    async (billingCycle: 'monthly' | 'lifetime' = 'monthly', orderId?: string) => {
+      try {
+        const ok = await activateProSubscription(billingCycle, orderId);
+        if (ok) {
+          await refreshSubscription();
+          toast.success('Syntoze Pro activated! Unlimited credentials unlocked.');
+          return true;
+        } else {
+          toast.error('Failed to sync Pro status with database.');
+          return false;
+        }
+      } catch (err: any) {
+        toast.error(err?.message || 'Error activating Pro plan');
+        return false;
+      }
+    },
+    [refreshSubscription]
+  );
 
   // Filters
   const [activeProjectId, setActiveProjectId] = useState('all');
@@ -1245,6 +1267,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
         openPricingModal,
         closePricingModal,
         refreshSubscription,
+        activateProPlan,
         isSettingsOpen,
         openSettings,
         closeSettings,
