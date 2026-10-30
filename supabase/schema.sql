@@ -59,16 +59,19 @@ alter table public.projects enable row level security;
 alter table public.credentials enable row level security;
 
 -- Strict Row Level Security Policies (Enforces auth.uid() = user_id)
+drop policy if exists "Users can only read and manage their own vault settings" on public.vault_settings;
 create policy "Users can only read and manage their own vault settings"
   on public.vault_settings for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "Users can only read and manage their own projects" on public.projects;
 create policy "Users can only read and manage their own projects"
   on public.projects for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop policy if exists "Users can only read and manage their own credentials" on public.credentials;
 create policy "Users can only read and manage their own credentials"
   on public.credentials for all
   using (auth.uid() = user_id)
@@ -92,8 +95,11 @@ create table if not exists public.user_subscriptions (
   updated_at timestamptz default now() not null
 );
 
+create index if not exists idx_user_subscriptions_user_id on public.user_subscriptions(user_id);
+
 alter table public.user_subscriptions enable row level security;
 
+drop policy if exists "Users can view and manage their own subscription" on public.user_subscriptions;
 create policy "Users can view and manage their own subscription"
   on public.user_subscriptions for all
   using (auth.uid() = user_id)

@@ -4,10 +4,44 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const orderId = searchParams.get('order_id');
+  const uid = searchParams.get('uid');
+  const isDemo = searchParams.get('demo') === 'true';
+
   const origin =
+    request.nextUrl.origin ||
     request.headers.get('origin') ||
     process.env.NEXT_PUBLIC_APP_URL ||
     'http://localhost:3000';
+
+  // Demo / Dev simulation mode
+  if (isDemo) {
+    try {
+      const supabase = await createServerSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        await supabase.from('user_subscriptions').upsert(
+          {
+            user_id: user.id,
+            plan: 'pro',
+            billing_cycle: 'lifetime',
+            status: 'active',
+            order_id: `demo_${Date.now()}`,
+            amount: 999.0,
+            currency: 'INR',
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
+      }
+      return NextResponse.redirect(`${origin}/?upgraded=true`);
+    } catch (err) {
+      console.error('Demo upgrade error:', err);
+      return NextResponse.redirect(`${origin}/?payment=error`);
+    }
+  }
 
   if (!orderId) {
     return NextResponse.redirect(`${origin}/?payment=missing_order`);
@@ -40,15 +74,27 @@ export async function GET(request: NextRequest) {
 
     if (orderData.order_status === 'PAID') {
       const supabase = await createServerSupabaseClient();
+      let targetUserId: string | null = null;
+
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
       if (user) {
+        targetUserId = user.id;
+      } else if (uid) {
+        // Fallback: verify uid against Cashfree customer_id to prevent tampering
+        const cfCustomerId = orderData.customer_details?.customer_id;
+        if (cfCustomerId && cfCustomerId === uid.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50)) {
+          targetUserId = uid;
+        }
+      }
+
+      if (targetUserId) {
         // Upgrade user plan in Supabase
         await supabase.from('user_subscriptions').upsert(
           {
-            user_id: user.id,
+            user_id: targetUserId,
             plan: 'pro',
             billing_cycle: orderData.order_amount < 500 ? 'monthly' : 'lifetime',
             status: 'active',

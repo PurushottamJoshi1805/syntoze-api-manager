@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
         : 'https://sandbox.cashfree.com/pg';
 
     const origin =
+      request.nextUrl.origin ||
       request.headers.get('origin') ||
       process.env.NEXT_PUBLIC_APP_URL ||
       'http://localhost:3000';
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
         customer_name: user.user_metadata?.full_name || 'Syntoze Developer',
       },
       order_meta: {
-        return_url: `${origin}/api/payments/cashfree/verify?order_id={order_id}`,
+        return_url: `${origin}/api/payments/cashfree/verify?order_id={order_id}&uid=${user.id}`,
       },
       order_note: planName,
     };

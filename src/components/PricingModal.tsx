@@ -185,9 +185,24 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
 
         {/* Error notification */}
         {errorMessage && (
-          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start space-x-2">
-            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-            <span className="text-[11px] leading-relaxed">{errorMessage}</span>
+          <div className="mb-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex flex-col space-y-2">
+            <div className="flex items-start space-x-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+              <span className="text-[11px] leading-relaxed">{errorMessage}</span>
+            </div>
+            {errorMessage.includes('Cashfree API keys') && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLoading(true);
+                  window.location.href = '/api/payments/cashfree/verify?demo=true';
+                }}
+                className="mt-1 w-full py-2 px-3 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 rounded-lg text-xs font-semibold flex items-center justify-center space-x-1.5 transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>Activate Pro Upgrade (Sandbox Demo Mode)</span>
+              </button>
+            )}
           </div>
         )}
 
