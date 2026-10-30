@@ -39,8 +39,19 @@ npm run build
 npm run start
 ```
 
-### 3. Supabase Cloud Connection (Optional)
-When you are ready to persist to Supabase:
-- Run the SQL migrations in [`supabase/schema.sql`](./supabase/schema.sql) in your Supabase SQL Editor.
-- Row Level Security (RLS) guarantees that only the authenticated user can access their encrypted rows.
+### 3. Supabase Cloud Connection
+- Run the SQL schema in [`supabase/schema.sql`](./supabase/schema.sql) in your Supabase SQL Editor.
+- Row Level Security (RLS) guarantees that only the authenticated user can access their encrypted rows and subscription record.
+
+### 4. Cashfree Payments Gateway Setup (Pro Tier)
+To enable real UPI / Cards / NetBanking payments via Cashfree:
+1. Register on [Cashfree Merchant Dashboard](https://merchant.cashfree.com/merchants/pg/devstudio/api-keys).
+2. Add your API credentials in `.env.local` (and in Vercel Project Settings):
+   ```env
+   CASHFREE_APP_ID=your_cashfree_app_id
+   CASHFREE_SECRET_KEY=your_cashfree_secret_key
+   CASHFREE_MODE=sandbox          # Set to 'production' for live payments
+   NEXT_PUBLIC_CASHFREE_MODE=sandbox
+   ```
+3. A built-in Sandbox Demo Mode is also available for testing without active credentials.
 
