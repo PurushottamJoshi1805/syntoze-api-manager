@@ -111,7 +111,7 @@ export default function SignUpPage() {
             ? window.location.origin
             : appUrl && !appUrl.includes('localhost')
             ? appUrl.replace(/\/$/, '')
-            : 'https://syntoze-api-manager.vercel.app'
+            : window.location.origin
           : undefined;
       const redirectUrl = baseUrl ? `${baseUrl}/auth/callback` : `${window.location.origin}/auth/callback`;
 
@@ -120,8 +120,7 @@ export default function SignUpPage() {
         options: {
           redirectTo: redirectUrl,
           queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
+            prompt: 'select_account',
           },
         },
       });

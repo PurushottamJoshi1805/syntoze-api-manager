@@ -171,7 +171,7 @@ function AuthForm() {
             ? window.location.origin
             : appUrl && !appUrl.includes('localhost')
             ? appUrl.replace(/\/$/, '')
-            : 'https://syntoze-api-manager.vercel.app'
+            : window.location.origin
           : undefined;
       const redirectUrl = baseUrl ? `${baseUrl}/auth/callback` : undefined;
 
@@ -180,8 +180,7 @@ function AuthForm() {
         options: {
           redirectTo: redirectUrl,
           queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
+            prompt: 'select_account',
           },
         },
       });
