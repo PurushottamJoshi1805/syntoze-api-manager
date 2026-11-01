@@ -37,6 +37,16 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // If request contains OAuth authorization code on root or non-callback route,
+  // forward directly to /auth/callback so the session code exchange completes
+  if (request.nextUrl.searchParams.has('code') && !request.nextUrl.pathname.startsWith('/auth/callback')) {
+    const callbackUrl = new URL('/auth/callback', request.nextUrl.origin);
+    request.nextUrl.searchParams.forEach((val, key) => {
+      callbackUrl.searchParams.set(key, val);
+    });
+    return NextResponse.redirect(callbackUrl);
+  }
+
   // IMPORTANT: Do NOT use getSession() as it isn't safe. Use getUser() instead.
   const {
     data: { user },
