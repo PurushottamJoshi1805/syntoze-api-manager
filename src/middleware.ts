@@ -42,7 +42,7 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const publicPrefixes = ['/auth', '/api', '/privacy', '/terms', '/refund', '/contact'];
+  const publicPrefixes = ['/auth', '/api', '/privacy', '/terms', '/refund', '/contact', '/logo', '/opengraph-image'];
   const isPublicRoute = publicPrefixes.some((prefix) => request.nextUrl.pathname.startsWith(prefix));
 
   // If no user and not on a public route, redirect to login

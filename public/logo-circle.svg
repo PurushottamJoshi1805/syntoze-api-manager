@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none">
+  <defs>
+    <!-- Background Radial Ambient Glow -->
+    <radialGradient id="ambientGlowCircle" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#6366F1" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#08090C" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Outer Shield Gradient -->
+    <linearGradient id="shieldGradCircle" x1="64" y1="64" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A5B4FC" />
+      <stop offset="40%" stop-color="#818CF8" />
+      <stop offset="100%" stop-color="#4F46E5" />
+    </linearGradient>
+
+    <!-- Inner Core Gradient -->
+    <linearGradient id="coreGradCircle" x1="160" y1="160" x2="352" y2="352" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="50%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#4338CA" />
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="coreGlowCircle" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="nodeGlowCircle" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Circular Profile Picture Background -->
+  <circle cx="256" cy="256" r="256" fill="#08090C" />
+  
+  <!-- Ambient Center Glow -->
+  <circle cx="256" cy="256" r="220" fill="url(#ambientGlowCircle)" />
+  
+  <!-- Circular Edge Accent -->
+  <circle cx="256" cy="256" r="254" stroke="#1E2235" stroke-width="2" />
+
+  <!-- Outer Isometric Vault Shield -->
+  <path
+    d="M256 80L96 160V304L256 398L416 304V160L256 80Z"
+    stroke="url(#shieldGradCircle)"
+    stroke-width="20"
+    stroke-linejoin="round"
+    stroke-linecap="round"
+  />
+
+  <!-- Top Prism Facet Accent -->
+  <path
+    d="M256 80L256 256L416 160"
+    stroke="url(#shieldGradCircle)"
+    stroke-width="7"
+    stroke-opacity="0.35"
+    stroke-linejoin="round"
+  />
+
+  <!-- Inner Cryptographic Zero-Knowledge Core -->
+  <path
+    d="M256 168L176 212V284L256 328L336 284V212L256 168Z"
+    fill="url(#coreGradCircle)"
+    fill-opacity="0.28"
+    stroke="url(#coreGradCircle)"
+    stroke-width="16"
+    stroke-linejoin="round"
+    filter="url(#coreGlowCircle)"
+  />
+
+  <!-- Central Locking Quantum Node -->
+  <circle cx="256" cy="248" r="22" fill="#38BDF8" filter="url(#nodeGlowCircle)" />
+  <circle cx="256" cy="248" r="9" fill="#FFFFFF" />
+</svg>
+

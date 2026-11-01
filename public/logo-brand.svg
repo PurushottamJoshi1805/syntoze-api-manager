@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" width="640" height="160" fill="none">
+  <defs>
+    <linearGradient id="brandShieldGrad" x1="20" y1="20" x2="140" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#A5B4FC" />
+      <stop offset="50%" stop-color="#818CF8" />
+      <stop offset="100%" stop-color="#4F46E5" />
+    </linearGradient>
+
+    <linearGradient id="brandCoreGrad" x1="50" y1="50" x2="110" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38BDF8" />
+      <stop offset="100%" stop-color="#6366F1" />
+    </linearGradient>
+
+    <filter id="brandGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="640" height="160" rx="24" fill="#08090C" />
+  <rect x="1" y="1" width="638" height="158" rx="23" stroke="#1E2235" stroke-width="1.5" />
+
+  <!-- Shield Badge Container -->
+  <g transform="translate(40, 25)">
+    <!-- Outer Shield -->
+    <path
+      d="M55 8L15 28V68L55 92L95 68V28L55 8Z"
+      stroke="url(#brandShieldGrad)"
+      stroke-width="5.5"
+      stroke-linejoin="round"
+      stroke-linecap="round"
+    />
+    <!-- Inner Core -->
+    <path
+      d="M55 28L36 38V56L55 66L74 56V38L55 28Z"
+      fill="url(#brandCoreGrad)"
+      fill-opacity="0.3"
+      stroke="url(#brandCoreGrad)"
+      stroke-width="4"
+      stroke-linejoin="round"
+    />
+    <!-- Center Node -->
+    <circle cx="55" cy="47" r="5" fill="#38BDF8" filter="url(#brandGlow)" />
+  </g>
+
+  <!-- Brand Typography -->
+  <g transform="translate(170, 75)">
+    <text
+      x="0"
+      y="0"
+      fill="#FFFFFF"
+      font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+      font-size="44"
+      font-weight="800"
+      letter-spacing="-0.03em"
+    >SYNTOZE</text>
+
+    <!-- Subtitle -->
+    <text
+      x="2"
+      y="32"
+      fill="#818CF8"
+      font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+      font-size="14"
+      font-weight="700"
+      letter-spacing="0.18em"
+    >ZERO-KNOWLEDGE VAULT</text>
+  </g>
+
+  <!-- Status Indicator -->
+  <g transform="translate(485, 68)">
+    <rect width="115" height="30" rx="15" fill="#10B981" fill-opacity="0.12" stroke="#10B981" stroke-opacity="0.3" stroke-width="1" />
+    <circle cx="18" cy="15" r="4" fill="#10B981" />
+    <text
+      x="28"
+      y="19"
+      fill="#34D399"
+      font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+      font-size="11"
+      font-weight="700"
+      letter-spacing="0.05em"
+    >AES-256</text>
+  </g>
+</svg>
+
