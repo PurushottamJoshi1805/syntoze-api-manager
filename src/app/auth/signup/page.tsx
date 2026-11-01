@@ -104,16 +104,10 @@ export default function SignUpPage() {
     setError('');
     try {
       const supabase = createClient();
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-      const baseUrl =
+      const redirectUrl =
         typeof window !== 'undefined'
-          ? window.location.hostname.includes('localhost')
-            ? window.location.origin
-            : appUrl && !appUrl.includes('localhost')
-            ? appUrl.replace(/\/$/, '')
-            : window.location.origin
+          ? `${window.location.origin}/auth/callback`
           : undefined;
-      const redirectUrl = baseUrl ? `${baseUrl}/auth/callback` : `${window.location.origin}/auth/callback`;
 
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider,

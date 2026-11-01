@@ -54,7 +54,7 @@ export default function RefundPage() {
         <section className="space-y-3 text-xs sm:text-sm text-zinc-300 leading-relaxed">
           <h2 className="text-lg font-bold text-white">1. Eligibility for Refunds</h2>
           <ul className="list-disc pl-5 space-y-1.5 text-zinc-400">
-            <li><strong>First-Time Upgrades:</strong> Both the ₹199/month and ₹999 Lifetime Access tiers are eligible for a full refund within 7 days of purchase.</li>
+            <li><strong>First-Time Upgrades:</strong> Both the ₹99/month (or international equivalent) and ₹999 Lifetime Access tiers are eligible for a full refund within 7 days of purchase.</li>
             <li><strong>Duplicate Charges:</strong> If an unintended multiple transaction occurs due to network timeout or gateway delay, all duplicate amounts are refunded automatically within 24–48 hours.</li>
           </ul>
         </section>
@@ -95,3 +95,4 @@ export default function RefundPage() {
     </div>
   );
 }
+

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useVault } from '@/lib/context/vaultContext';
 import { load } from '@cashfreepayments/cashfree-js';
+import { CURRENCIES, SupportedCurrency } from '@/lib/constants/pricing';
 import {
   X,
   Check,
@@ -18,6 +19,7 @@ import {
   Phone,
   AlertCircle,
   CreditCard,
+  Globe,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -29,6 +31,7 @@ interface PricingModalProps {
 export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) => {
   const { user, isPro, credentials, refreshSubscription, verifyAndSyncCashfreeOrder } = useVault();
   const [selectedPlan, setSelectedPlan] = useState<'lifetime' | 'monthly'>('lifetime');
+  const [selectedCurrency, setSelectedCurrency] = useState<SupportedCurrency>('INR');
   const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -38,18 +41,21 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
 
   if (!isOpen) return null;
 
+  const currentPricing = CURRENCIES[selectedCurrency] || CURRENCIES.INR;
+
   const handleCheckout = async () => {
     setErrorMessage('');
     setIsLoading(true);
 
     try {
-      // 1. Call server to create Cashfree order
+      // 1. Call server to create Cashfree order with plan and chosen currency
       const response = await fetch('/api/payments/cashfree/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           planType: selectedPlan,
           customerPhone: phone.trim() || '9999999999',
+          currency: selectedCurrency,
         }),
       });
 
@@ -90,7 +96,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-xl bg-[#0D0E14] border border-white/[0.1] rounded-2xl shadow-2xl p-6 sm:p-8 relative max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-xl bg-[#0D0E14] border border-white/[0.1] rounded-2xl shadow-2xl p-6 sm:p-8 relative max-h-[92vh] overflow-y-auto">
         {/* Top subtle highlight */}
         <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/30 to-transparent rounded-t-2xl" />
 
@@ -103,20 +109,50 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
         </button>
 
         {/* Header */}
-        <div className="text-center space-y-2 mb-6">
+        <div className="text-center space-y-2 mb-5">
           <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-medium">
             <Sparkles className="h-3.5 w-3.5" />
             <span>Syntoze Pro Access</span>
           </div>
 
           <h2 className="text-2xl font-bold tracking-tight text-white">
-            Unlock Unlimited Keys & Security Hygiene
+            Unlock Unlimited Keys &amp; Security Hygiene
           </h2>
 
           <p className="text-xs text-zinc-400 max-w-md mx-auto">
             Zero-knowledge client encrypted vault. Currently using{' '}
             <strong className="text-white">{credentials.length} of 15</strong> free credentials.
           </p>
+        </div>
+
+        {/* Currency Switcher */}
+        <div className="mb-4 p-2 bg-[#08090C] rounded-xl border border-white/[0.06] flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center space-x-1.5 text-xs text-zinc-400 font-medium pl-1">
+            <Globe className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span>Select Currency:</span>
+          </div>
+          <div className="flex items-center space-x-1 overflow-x-auto py-0.5">
+            {(Object.keys(CURRENCIES) as SupportedCurrency[]).map((cCode) => {
+              const c = CURRENCIES[cCode];
+              const isActive = selectedCurrency === cCode;
+              return (
+                <button
+                  key={cCode}
+                  type="button"
+                  onClick={() => setSelectedCurrency(cCode)}
+                  className={`px-2 py-1 rounded-md text-[11px] font-mono transition-all flex items-center space-x-1 shrink-0 ${
+                    isActive
+                      ? 'bg-indigo-600 text-white font-semibold shadow-sm'
+                      : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                  }`}
+                  title={c.label}
+                >
+                  <span>{c.flag}</span>
+                  <span>{c.code}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Plan Selector Toggle */}
@@ -135,7 +171,9 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
             </span>
             <p className="text-xs font-semibold">Lifetime Access</p>
             <div className="flex items-baseline space-x-1 mt-1">
-              <span className="text-xl font-bold text-white font-mono">₹999</span>
+              <span className="text-xl font-bold text-white font-mono">
+                {currentPricing.lifetimeFormatted}
+              </span>
               <span className="text-[10px] text-zinc-500">one-time payment</span>
             </div>
           </button>
@@ -151,14 +189,16 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
           >
             <p className="text-xs font-semibold">Monthly Subscription</p>
             <div className="flex items-baseline space-x-1 mt-1">
-              <span className="text-xl font-bold text-white font-mono">₹199</span>
+              <span className="text-xl font-bold text-white font-mono">
+                {currentPricing.monthlyFormatted}
+              </span>
               <span className="text-[10px] text-zinc-500">/ month</span>
             </div>
           </button>
         </div>
 
         {/* Feature comparison checklist */}
-        <div className="space-y-2.5 mb-6 p-4 rounded-xl bg-[#08090C] border border-white/[0.06]">
+        <div className="space-y-2.5 mb-6 p-4 rounded-xl bg-[#08090C] border border-white/[0.04] text-xs">
           {[
             'Unlimited API keys, tokens & connection strings',
             'All environments (Development, Staging, QA, Production)',
@@ -167,20 +207,20 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
             'Instant 1-Click .env Batch Exporter & Importer',
             '24-Character Cryptographic Disaster Recovery Kit',
             'Zero Server Knowledge: Client WebCrypto AES-256-GCM',
-          ].map((feature) => (
-            <div key={feature} className="flex items-start space-x-2.5 text-xs text-zinc-300">
-              <div className="h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 flex-shrink-0 mt-0.5">
-                <Check className="h-2.5 w-2.5 stroke-[3]" />
+          ].map((feature, i) => (
+            <div key={i} className="flex items-center space-x-2.5 text-zinc-300">
+              <div className="h-4 w-4 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
+                <Check className="h-2.5 w-2.5 text-emerald-400" />
               </div>
               <span>{feature}</span>
             </div>
           ))}
         </div>
 
-        {/* Phone number input for Cashfree receipts / UPI */}
-        <div className="mb-4">
-          <label className="block text-[11px] font-medium text-zinc-300 mb-1">
-            Mobile Number (for UPI & Cashfree invoice receipt)
+        {/* Contact Phone (for Cashfree Invoice/Receipt) */}
+        <div className="mb-5">
+          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">
+            Mobile Number (for UPI &amp; Cashfree invoice receipt)
           </label>
           <div className="relative">
             <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
@@ -216,12 +256,22 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
           ) : (
             <>
               <span>
-                Pay {selectedPlan === 'lifetime' ? '₹999 (Lifetime)' : '₹199 / month'} via Cashfree
+                Pay{' '}
+                {selectedPlan === 'lifetime'
+                  ? `${currentPricing.lifetimeFormatted} (Lifetime)`
+                  : `${currentPricing.monthlyFormatted} / month`}{' '}
+                via Cashfree
               </span>
               <ArrowRight className="w-3.5 h-3.5" />
             </>
           )}
         </button>
+
+        {selectedCurrency !== 'INR' && (
+          <p className="text-[10px] text-zinc-400 text-center mt-2">
+            Accepts all international cards: Visa, Mastercard, American Express, PayPal &amp; global debit cards.
+          </p>
+        )}
 
         {/* Verify Past Paid Cashfree Order */}
         {!isPro && (
@@ -232,7 +282,7 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
                 onClick={() => setShowVerifyInput(true)}
                 className="text-[11px] text-zinc-400 hover:text-indigo-400 underline underline-offset-4 transition-colors"
               >
-                Already paid on Cashfree? Verify Order ID & Activate
+                Already paid on Cashfree? Verify Order ID &amp; Activate
               </button>
             ) : (
               <div className="mt-2 p-3 bg-[#08090C] border border-white/[0.08] rounded-xl text-left space-y-2">
@@ -289,4 +339,3 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
     </div>
   );
 };
-

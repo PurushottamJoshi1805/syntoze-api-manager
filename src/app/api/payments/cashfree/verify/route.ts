@@ -27,13 +27,10 @@ async function handleVerification(request: NextRequest) {
     }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
   const origin =
-    appUrl && !appUrl.includes('localhost')
-      ? appUrl.replace(/\/$/, '')
-      : request.nextUrl.origin && !request.nextUrl.origin.includes('localhost')
-      ? 'https://syntoze-api-manager.vercel.app'
-      : request.nextUrl.origin || 'http://localhost:3000';
+    request.headers.get('origin') ||
+    request.nextUrl.origin ||
+    'https://syntoze-api-manager.vercel.app';
 
   if (!orderId || typeof orderId !== 'string') {
     if (wantsJson) {
@@ -134,8 +131,12 @@ async function handleVerification(request: NextRequest) {
       return NextResponse.redirect(`${origin}/?payment=account_mismatch`);
     }
 
-    // Determine plan type from paid amount (e.g. 199 = monthly, 999 = lifetime)
-    const billingCycle = (orderData.order_amount || 0) < 500 ? 'monthly' : 'lifetime';
+    // Determine plan type from order note or amount
+    const orderNote = (orderData.order_note || '').toLowerCase();
+    const isMonthly =
+      orderNote.includes('monthly') ||
+      (orderData.order_currency === 'INR' ? orderData.order_amount < 500 : orderData.order_amount < 5);
+    const billingCycle = isMonthly ? 'monthly' : 'lifetime';
 
     // Upsert subscription for THIS verified user only
     const { error: dbError } = await supabase.from('user_subscriptions').upsert(

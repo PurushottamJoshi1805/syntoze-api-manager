@@ -9,16 +9,7 @@ export async function GET(request: NextRequest) {
   const next = searchParams.get('next') ?? '/';
 
   // Request origin guarantees matching protocol and domain (preventing cross-origin cookie loss)
-  const requestOrigin = request.nextUrl.origin;
-  const isLocalEnv = process.env.NODE_ENV === 'development';
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
-
-  const redirectBase =
-    isLocalEnv
-      ? requestOrigin
-      : appUrl && !appUrl.includes('localhost')
-      ? appUrl.replace(/\/$/, '')
-      : requestOrigin;
+  const redirectBase = request.nextUrl.origin;
 
   // Handle direct OAuth provider errors (e.g. user cancelled)
   if (errorParam || errorDescription) {
