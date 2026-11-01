@@ -17,9 +17,46 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Syntoze | Developer API Key Vault',
+  metadataBase: new URL('https://syntoze-api-manager.vercel.app'),
+  title: {
+    default: 'Syntoze | Zero-Knowledge Developer API Key Vault',
+    template: '%s | Syntoze',
+  },
   description:
-    'Zero-knowledge personal API key manager for engineering teams and indie builders. Store, organize, and export secrets across environments.',
+    'Client-encrypted zero-knowledge API key manager for engineering teams and indie hackers. Store, organize, and export secrets across dev, staging, and production with AES-256-GCM.',
+  keywords: [
+    'API key manager',
+    'developer vault',
+    'zero-knowledge encryption',
+    'AES-256-GCM',
+    'environment variables',
+    'secrets management',
+    'dotenv exporter',
+    'indie hacker security',
+  ],
+  authors: [{ name: 'Syntoze' }],
+  creator: 'Syntoze',
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: 'https://syntoze-api-manager.vercel.app',
+    title: 'Syntoze | Zero-Knowledge Developer API Key Vault',
+    description:
+      'Client-side AES-256-GCM encrypted secret manager. Your master keys never touch our servers.',
+    siteName: 'Syntoze API Vault',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Syntoze | Zero-Knowledge Developer API Key Vault',
+    description:
+      'Client-side AES-256-GCM encrypted secret manager for developers. Stop leaking .env keys in Git.',
+    creator: '@syntoze',
+  },
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+    apple: '/icon.svg',
+  },
 };
 
 export default function RootLayout({

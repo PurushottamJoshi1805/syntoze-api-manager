@@ -277,7 +277,13 @@ export const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose }) =
             <Lock className="h-3 w-3" />
             <span>256-Bit Encrypted Payments</span>
           </span>
-          <span>Powered by Cashfree Payments (UPI / Cards / NetBanking)</span>
+          <div className="flex items-center space-x-2">
+            <a href="/refund" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-300 underline">
+              7-Day Refund Policy
+            </a>
+            <span>•</span>
+            <span>Powered by Cashfree</span>
+          </div>
         </div>
       </div>
     </div>

@@ -42,12 +42,11 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // If no user and not on auth pages or api routes, redirect to login
-  if (
-    !user &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/api')
-  ) {
+  const publicPrefixes = ['/auth', '/api', '/privacy', '/terms', '/refund', '/contact'];
+  const isPublicRoute = publicPrefixes.some((prefix) => request.nextUrl.pathname.startsWith(prefix));
+
+  // If no user and not on a public route, redirect to login
+  if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';
     return NextResponse.redirect(url);

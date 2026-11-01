@@ -480,6 +480,25 @@ function AuthForm() {
               )}
             </button>
           </div>
+
+          {/* Trust & Compliance links */}
+          <div className="mt-6 pt-4 border-t border-white/[0.04] flex items-center justify-center space-x-3 text-[11px] text-zinc-500">
+            <Link href="/privacy" className="hover:text-zinc-300 transition-colors">
+              Privacy Policy
+            </Link>
+            <span>•</span>
+            <Link href="/terms" className="hover:text-zinc-300 transition-colors">
+              Terms
+            </Link>
+            <span>•</span>
+            <Link href="/refund" className="hover:text-zinc-300 transition-colors">
+              Refunds
+            </Link>
+            <span>•</span>
+            <Link href="/contact" className="hover:text-zinc-300 transition-colors">
+              Contact
+            </Link>
+          </div>
         </div>
       </div>
     </div>
