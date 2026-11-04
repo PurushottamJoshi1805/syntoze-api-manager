@@ -52,7 +52,19 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const publicPrefixes = ['/auth', '/api', '/privacy', '/terms', '/refund', '/contact', '/logo', '/opengraph-image'];
+  const publicPrefixes = [
+    '/auth',
+    '/api',
+    '/privacy',
+    '/terms',
+    '/refund',
+    '/contact',
+    '/logo',
+    '/opengraph-image',
+    '/sitemap',
+    '/robots',
+    '/favicon',
+  ];
   const isPublicRoute = publicPrefixes.some((prefix) => request.nextUrl.pathname.startsWith(prefix));
 
   // If no user and not on a public route, redirect to login
@@ -78,9 +90,9 @@ export const config = {
      * Match all request paths except:
      * - _next/static (static files)
      * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
+     * - favicon.ico, sitemap.xml, robots.txt
+     * - static image/asset extensions (svg, png, jpg, xml, txt, etc.)
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|.*\\.(?:svg|png|jpg|jpeg|gif|webp|xml|txt)$).*)',
   ],
 };
