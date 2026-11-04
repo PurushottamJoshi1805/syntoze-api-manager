@@ -57,6 +57,9 @@ export const metadata: Metadata = {
     shortcut: '/icon.svg',
     apple: '/icon.svg',
   },
+  verification: {
+    google: 'tvgrJKBeW17Vg_Di5xNfTXt53_z_TJuZUiLsX6eYFfY',
+  },
 };
 
 export default function RootLayout({
